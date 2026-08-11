@@ -3,6 +3,14 @@ package at.xikey.ime
 /** Immutable alphabetic rows for the two deliberately supported XiKey languages. */
 data class KeyboardLayout(val rows: List<List<String>>) {
     companion object {
+        fun symbols(): KeyboardLayout = KeyboardLayout(
+            rows = listOf(
+                listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
+                listOf("-", "/", ":", ";", "(", ")", "€", "&", "@", "\""),
+                listOf("#", "+", "=", "_", "!", "?", "'", "%"),
+            ),
+        )
+
         fun forLanguage(language: PredictionLanguage): KeyboardLayout = when (language) {
             PredictionLanguage.VORARLBERG_GERMAN -> KeyboardLayout(
                 rows = listOf(

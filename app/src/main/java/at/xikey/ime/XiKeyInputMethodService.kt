@@ -13,6 +13,7 @@ import android.widget.LinearLayout
  */
 class XiKeyInputMethodService : InputMethodService() {
     private val languages = KeyboardLanguageController()
+    private val pages = KeyboardPageController()
     private val shift = KeyboardShiftController()
     private var keyboard: LinearLayout? = null
 
@@ -26,17 +27,27 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun renderKeyboard() {
         val root = keyboard ?: return
         root.removeAllViews()
-        KeyboardLayout.forLanguage(languages.current).rows.forEach { row ->
-            root.addView(keyRow(row.map { key -> keyButton(key) }))
+        val layout = when (pages.current) {
+            KeyboardPage.ALPHABETIC -> KeyboardLayout.forLanguage(languages.current)
+            KeyboardPage.SYMBOLS -> KeyboardLayout.symbols()
+        }
+        layout.rows.forEach { row ->
+            val buttons = row.map { key ->
+                if (pages.current == KeyboardPage.ALPHABETIC) keyButton(key) else symbolButton(key)
+            }
+            root.addView(keyRow(buttons))
         }
         root.addView(
             keyRow(
                 listOf(
-                    actionButton("⇧", "Umschalttaste") { shift.toggle(); renderKeyboard() },
+                    if (pages.current == KeyboardPage.ALPHABETIC) {
+                        actionButton("⇧", "Umschalttaste") { shift.toggle(); renderKeyboard() }
+                    } else {
+                        actionButton("ABC", "Buchstaben anzeigen") { pages.toggle(); renderKeyboard() }
+                    },
+                    actionButton(pageToggleLabel(), "Zahlen und Sonderzeichen umschalten") { pages.toggle(); renderKeyboard() },
                     actionButton(languageLabel(), "Sprache wechseln") { switchLanguage() },
-                    actionButton(",", "Komma") { commit(",") },
                     actionButton("Leertaste", "Leertaste") { commit(" ") },
-                    actionButton(".", "Punkt") { commit(".") },
                     actionButton("⌫", "Löschen") { currentInputConnection?.deleteSurroundingText(1, 0) },
                     actionButton("↵", "Eingabe") { currentInputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER)) },
                 ),
@@ -47,6 +58,11 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun languageLabel(): String = when (languages.current) {
         PredictionLanguage.VORARLBERG_GERMAN -> "VBG"
         PredictionLanguage.ENGLISH -> "EN"
+    }
+
+    private fun pageToggleLabel(): String = when (pages.current) {
+        KeyboardPage.ALPHABETIC -> "?123"
+        KeyboardPage.SYMBOLS -> "ABC"
     }
 
     private fun switchLanguage() {
@@ -66,6 +82,10 @@ class XiKeyInputMethodService : InputMethodService() {
             commit(shift.applyTo(key))
             renderKeyboard()
         }
+    }
+
+    private fun symbolButton(symbol: String): Button = actionButton(symbol, "Zeichen $symbol") {
+        commit(symbol)
     }
 
     private fun actionButton(label: String, description: String, action: (() -> Unit)? = null): Button = Button(this).apply {
