@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">XiKey</string>
+    <string name="subtype_vorarlberg">Vorarlberger Deutsch</string>
+    <string name="subtype_english">English</string>
+</resources>
