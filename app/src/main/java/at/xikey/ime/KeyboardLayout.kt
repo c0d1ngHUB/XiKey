@@ -1,6 +1,6 @@
 package at.xikey.ime
 
-/** Immutable alphabetic rows for the two deliberately supported XiKey languages. */
+/** Immutable keyboard rows for the deliberately supported XiKey languages and symbol pages. */
 data class KeyboardLayout(val rows: List<List<String>>) {
     companion object {
         fun symbols(): KeyboardLayout = KeyboardLayout(
@@ -8,6 +8,14 @@ data class KeyboardLayout(val rows: List<List<String>>) {
                 listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
                 listOf("@", "#", "€", "%", "&", "-", "+", "(", ")", "/"),
                 listOf("*", "\"", "'", ":", ";", "!", "?"),
+            ),
+        )
+
+        fun secondarySymbols(): KeyboardLayout = KeyboardLayout(
+            rows = listOf(
+                listOf("~", "\\", "|", "•", "√", "π", "÷", "×", "§", "Δ"),
+                listOf("£", "¥", "$", "¢", "^", "°", "=", "{", "}", "\\"),
+                listOf("©", "®", "™", "✓", "[", "]", "<", ">", "_"),
             ),
         )
 
