@@ -13,9 +13,18 @@ XiKey ist eine eigenständige Android-IME (Input Method Editor). Microsoft Swift
 - **Keine Netzwerkberechtigung:** Die App übermittelt keine Tastatureingaben.
 - **Offene Entwicklung:** GPL-3.0-or-later.
 
+## Aktueller Funktionsumfang
+
+- Alphabetisches **QWERTZ**-Layout für Vorarlberger Deutsch inklusive `ä`, `ö`, `ü`.
+- **QWERTY**-Layout für Englisch.
+- Direkter Sprachwechsel mit `VBG` / `EN`.
+- Umschalttaste, Leertaste, Komma, Punkt, Löschen und Eingabe.
+
+Zahlen, weitere Sonderzeichen und Wortvorhersagen folgen in den nächsten Meilensteinen.
+
 ## Roadmap
 
-1. Vollständiges QWERTZ-Layout, Sonderzeichen und Sprache wechseln.
+1. Zahlen-/Sonderzeichenebene und dauerhafte Spracheinstellung.
 2. Kuratierter Vorarlberger Wortschatz mit Varianten und Frequenzen.
 3. Lokale Kandidaten-/Autokorrektur-Engine und lernbares persönliches Lexikon.
 4. Opt-in Import/Export des persönlichen Wörterbuchs.

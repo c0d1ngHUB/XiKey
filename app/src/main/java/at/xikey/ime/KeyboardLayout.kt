@@ -1,0 +1,23 @@
+package at.xikey.ime
+
+/** Immutable alphabetic rows for the two deliberately supported XiKey languages. */
+data class KeyboardLayout(val rows: List<List<String>>) {
+    companion object {
+        fun forLanguage(language: PredictionLanguage): KeyboardLayout = when (language) {
+            PredictionLanguage.VORARLBERG_GERMAN -> KeyboardLayout(
+                rows = listOf(
+                    listOf("q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü"),
+                    listOf("a", "s", "d", "f", "g", "h", "j", "k", "l", "ö", "ä"),
+                    listOf("y", "x", "c", "v", "b", "n", "m"),
+                ),
+            )
+            PredictionLanguage.ENGLISH -> KeyboardLayout(
+                rows = listOf(
+                    listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
+                    listOf("a", "s", "d", "f", "g", "h", "j", "k", "l"),
+                    listOf("z", "x", "c", "v", "b", "n", "m"),
+                ),
+            )
+        }
+    }
+}
