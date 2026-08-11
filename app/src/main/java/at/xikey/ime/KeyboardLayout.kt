@@ -6,8 +6,8 @@ data class KeyboardLayout(val rows: List<List<String>>) {
         fun symbols(): KeyboardLayout = KeyboardLayout(
             rows = listOf(
                 listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
-                listOf("-", "/", ":", ";", "(", ")", "€", "&", "@", "\""),
-                listOf("#", "+", "=", "_", "!", "?", "'", "%"),
+                listOf("@", "#", "€", "%", "&", "-", "+", "(", ")", "/"),
+                listOf("*", "\"", "'", ":", ";", "!", "?"),
             ),
         )
 
@@ -16,7 +16,7 @@ data class KeyboardLayout(val rows: List<List<String>>) {
                 rows = listOf(
                     listOf("q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü"),
                     listOf("a", "s", "d", "f", "g", "h", "j", "k", "l", "ö", "ä"),
-                    listOf("y", "x", "c", "v", "b", "n", "m"),
+                    listOf("y", "x", "c", "v", "b", "n", "m", "ß"),
                 ),
             )
             PredictionLanguage.ENGLISH -> KeyboardLayout(

@@ -18,7 +18,7 @@ class KeyboardPageControllerTest {
         val layout = KeyboardLayout.symbols()
 
         assertEquals(listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"), layout.rows.first())
-        assertEquals(listOf("-", "/", ":", ";", "(", ")", "€", "&", "@", "\""), layout.rows[1])
-        assertEquals(listOf("#", "+", "=", "_", "!", "?", "'", "%"), layout.rows[2])
+        assertEquals(listOf("@", "#", "€", "%", "&", "-", "+", "(", ")", "/"), layout.rows[1])
+        assertEquals(listOf("*", "\"", "'", ":", ";", "!", "?"), layout.rows[2])
     }
 }

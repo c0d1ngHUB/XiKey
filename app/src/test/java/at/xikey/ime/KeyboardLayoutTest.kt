@@ -10,7 +10,8 @@ class KeyboardLayoutTest {
         val layout = KeyboardLayout.forLanguage(PredictionLanguage.VORARLBERG_GERMAN)
 
         assertEquals(listOf("q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü"), layout.rows.first())
-        assertTrue(layout.rows.flatten().containsAll(listOf("ä", "ö")))
+        assertTrue(layout.rows.flatten().containsAll(listOf("ä", "ö", "ß")))
+        assertEquals("ß", layout.rows.last().last())
     }
 
     @Test

@@ -16,4 +16,13 @@ class KeyboardShiftControllerTest {
         assertEquals("Ä", shift.applyTo("ä"))
         assertFalse(shift.isShifted)
     }
+
+    @Test
+    fun `shift renders eszett as uppercase eszett`() {
+        val shift = KeyboardShiftController()
+
+        shift.toggle()
+        assertEquals("ẞ", shift.applyTo("ß"))
+        assertFalse(shift.isShifted)
+    }
 }

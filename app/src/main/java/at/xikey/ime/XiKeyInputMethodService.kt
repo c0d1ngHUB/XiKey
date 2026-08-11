@@ -3,6 +3,7 @@ package at.xikey.ime
 import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
@@ -27,32 +28,73 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun renderKeyboard() {
         val root = keyboard ?: return
         root.removeAllViews()
-        val layout = when (pages.current) {
-            KeyboardPage.ALPHABETIC -> KeyboardLayout.forLanguage(languages.current)
-            KeyboardPage.SYMBOLS -> KeyboardLayout.symbols()
+        when (pages.current) {
+            KeyboardPage.ALPHABETIC -> renderAlphabeticPage(root)
+            KeyboardPage.SYMBOLS -> renderSymbolsPage(root)
         }
-        layout.rows.forEach { row ->
-            val buttons = row.map { key ->
-                if (pages.current == KeyboardPage.ALPHABETIC) keyButton(key) else symbolButton(key)
+        root.addView(bottomRow())
+    }
+
+    private fun renderAlphabeticPage(root: LinearLayout) {
+        val rows = KeyboardLayout.forLanguage(languages.current).rows
+        rows.forEachIndexed { index, row ->
+            val buttons = if (index == rows.lastIndex) {
+                listOf(shiftButton()) + row.map(::keyButton) + listOf(deleteButton())
+            } else {
+                row.map(::keyButton)
             }
             root.addView(keyRow(buttons))
         }
-        root.addView(
-            keyRow(
-                listOf(
-                    if (pages.current == KeyboardPage.ALPHABETIC) {
-                        actionButton("⇧", "Umschalttaste") { shift.toggle(); renderKeyboard() }
-                    } else {
-                        actionButton("ABC", "Buchstaben anzeigen") { pages.toggle(); renderKeyboard() }
-                    },
-                    actionButton(pageToggleLabel(), "Zahlen und Sonderzeichen umschalten") { pages.toggle(); renderKeyboard() },
-                    actionButton(languageLabel(), "Sprache wechseln") { switchLanguage() },
-                    actionButton("Leertaste", "Leertaste") { commit(" ") },
-                    actionButton("⌫", "Löschen") { currentInputConnection?.deleteSurroundingText(1, 0) },
-                    actionButton("↵", "Eingabe") { currentInputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER)) },
-                ),
+    }
+
+    private fun renderSymbolsPage(root: LinearLayout) {
+        val rows = KeyboardLayout.symbols().rows
+        rows.forEachIndexed { index, row ->
+            val buttons = if (index == rows.lastIndex) {
+                listOf(letterPageButton()) + row.map(::symbolButton) + listOf(deleteButton())
+            } else {
+                row.map(::symbolButton)
+            }
+            root.addView(keyRow(buttons))
+        }
+    }
+
+    private fun bottomRow(): LinearLayout = when (pages.current) {
+        KeyboardPage.ALPHABETIC -> keyRow(
+            listOf(
+                actionButton("?123", "Zahlen und Sonderzeichen anzeigen") { pages.toggle(); renderKeyboard() },
+                languageButton(),
+                actionButton(",", "Komma") { commit(",") },
+                actionButton("Leertaste", "Leertaste") { commit(" ") },
+                actionButton(".", "Punkt") { commit(".") },
+                enterButton(),
             ),
+            listOf(1.2f, 1.2f, 1f, 3f, 1f, 1.2f),
         )
+        KeyboardPage.SYMBOLS -> keyRow(
+            listOf(
+                languageButton(),
+                actionButton(",", "Komma") { commit(",") },
+                actionButton("Leertaste", "Leertaste") { commit(" ") },
+                actionButton(".", "Punkt") { commit(".") },
+                enterButton(),
+            ),
+            listOf(1.2f, 1f, 3f, 1f, 1.2f),
+        )
+    }
+
+    private fun languageButton(): Button = actionButton(languageLabel(), "Sprache wechseln") { switchLanguage() }
+
+    private fun shiftButton(): Button = actionButton("⇧", "Umschalttaste") { shift.toggle(); renderKeyboard() }
+
+    private fun letterPageButton(): Button = actionButton("ABC", "Buchstaben anzeigen") { pages.toggle(); renderKeyboard() }
+
+    private fun deleteButton(): Button = actionButton("⌫", "Löschen") {
+        currentInputConnection?.deleteSurroundingText(1, 0)
+    }
+
+    private fun enterButton(): Button = actionButton("↵", "Eingabe") {
+        currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
     }
 
     private fun languageLabel(): String = when (languages.current) {
@@ -60,24 +102,24 @@ class XiKeyInputMethodService : InputMethodService() {
         PredictionLanguage.ENGLISH -> "EN"
     }
 
-    private fun pageToggleLabel(): String = when (pages.current) {
-        KeyboardPage.ALPHABETIC -> "?123"
-        KeyboardPage.SYMBOLS -> "ABC"
-    }
-
     private fun switchLanguage() {
         languages.switchToNext()
         renderKeyboard()
     }
 
-    private fun keyRow(keys: List<Button>): LinearLayout = LinearLayout(this).apply {
+    private fun keyRow(keys: List<Button>, weights: List<Float> = List(keys.size) { 1f }): LinearLayout = LinearLayout(this).apply {
+        require(keys.size == weights.size)
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
-        keys.forEach { addView(it, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) }) }
+        keys.zip(weights).forEach { (key, weight) ->
+            addView(key, LinearLayout.LayoutParams(0, dp(48), weight).apply {
+                setMargins(dp(2), dp(2), dp(2), dp(2))
+            })
+        }
     }
 
     private fun keyButton(key: String): Button {
-        val label = if (shift.isShifted) key.uppercase() else key
+        val label = if (shift.isShifted && key == "ß") "ẞ" else if (shift.isShifted) key.uppercase() else key
         return actionButton(label, "Taste $label") {
             commit(shift.applyTo(key))
             renderKeyboard()
