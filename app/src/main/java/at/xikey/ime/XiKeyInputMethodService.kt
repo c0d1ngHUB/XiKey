@@ -22,10 +22,16 @@ internal object KeyboardSurfaceMetrics {
  * The visual language follows the compact, dark, rounded-key treatment familiar from modern mobile keyboards.
  */
 class XiKeyInputMethodService : InputMethodService() {
-    private val languages = KeyboardLanguageController()
+    private lateinit var languages: KeyboardLanguageController
     private val pages = KeyboardPageController()
     private val shift = KeyboardShiftController()
     private var keyboard: LinearLayout? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
+        languages = KeyboardLanguageController(KeyboardLanguagePreference.restore(storedTag))
+    }
 
     override fun onCreateInputView(): View = LinearLayout(this).also { root ->
         root.orientation = LinearLayout.VERTICAL
@@ -103,7 +109,11 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     private fun languageButton(): Button = actionButton(languageLabel(), "Sprache wechseln", KeyKind.ACCENT) {
-        languages.switchToNext()
+        val language = languages.switchToNext()
+        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(PREFERENCE_LANGUAGE_TAG, KeyboardLanguagePreference.store(language))
+            .apply()
         renderKeyboard()
     }
 
@@ -203,6 +213,8 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     private companion object {
+        const val PREFERENCES_NAME = "xikey_preferences"
+        const val PREFERENCE_LANGUAGE_TAG = "language_tag"
         const val KEY_GAP_DP = 2
         const val CORNER_RADIUS_DP = 9
         val KEYBOARD_BACKGROUND: Int = Color.rgb(20, 23, 27)
