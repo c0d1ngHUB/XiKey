@@ -3,9 +3,12 @@ package at.xikey.ime
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -25,23 +28,42 @@ internal object KeyboardSurfaceMetrics {
  */
 class XiKeyInputMethodService : InputMethodService() {
     private lateinit var languages: KeyboardLanguageController
-    private lateinit var suggestions: DialectSuggestionEngine
+    private lateinit var suggestions: SuggestionWordLists
     private val pages = KeyboardPageController()
     private val shift = KeyboardShiftController()
+    private val backspaceRepeater = BackspaceRepeatController()
+    private val backspaceHandler = Handler(Looper.getMainLooper())
     private var keyboard: LinearLayout? = null
     private var currentSuggestions: List<String> = emptyList()
     private var suggestionsAllowed = false
+    private var isBackspaceHeld = false
+    private val repeatBackspace = object : Runnable {
+        override fun run() {
+            if (!isBackspaceHeld) return
+            repeat(backspaceRepeater.deletionsDue(System.currentTimeMillis())) { deleteOneCharacter() }
+            backspaceHandler.postDelayed(this, BackspaceRepeatController.REPEAT_INTERVAL_MILLIS)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
         languages = KeyboardLanguageController(KeyboardLanguagePreference.restore(storedTag))
-        suggestions = DialectSuggestionEngine(loadBundledDialectWords())
+        suggestions = SuggestionWordLists(
+            dialectWords = loadBundledWords("voralex_words.json"),
+            germanWords = loadBundledWords("german_words.json"),
+            englishWords = loadBundledWords("english_words.json"),
+        )
+    }
+
+    override fun onDestroy() {
+        stopBackspaceRepeat()
+        super.onDestroy()
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
-        suggestionsAllowed = languages.current == PredictionLanguage.VORARLBERG_GERMAN && !isSensitiveInput(attribute)
+        suggestionsAllowed = !isSensitiveInput(attribute)
         currentSuggestions = emptyList()
         shift.reset()
     }
@@ -125,7 +147,7 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun languageButton(): Button = actionButton(languageLabel(), "Sprache wechseln", KeyKind.ACCENT) {
         val language = languages.switchToNext()
         getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit().putString(PREFERENCE_LANGUAGE_TAG, KeyboardLanguagePreference.store(language)).apply()
-        suggestionsAllowed = language == PredictionLanguage.VORARLBERG_GERMAN
+        suggestionsAllowed = !isSensitiveInput(currentInputEditorInfo)
         clearSuggestions()
         renderKeyboard()
     }
@@ -139,7 +161,31 @@ class XiKeyInputMethodService : InputMethodService() {
         renderKeyboard()
     }
 
-    private fun deleteButton(): Button = actionButton("⌫", "Löschen", KeyKind.ACCENT) {
+    private fun deleteButton(): Button = actionButton("⌫", "Löschen; gedrückt halten für fortlaufendes Löschen", KeyKind.ACCENT).apply {
+        setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> startBackspaceRepeat()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> stopBackspaceRepeat()
+            }
+            true
+        }
+    }
+
+    private fun startBackspaceRepeat() {
+        isBackspaceHeld = true
+        deleteOneCharacter()
+        backspaceRepeater.onPress(System.currentTimeMillis())
+        backspaceHandler.removeCallbacks(repeatBackspace)
+        backspaceHandler.postDelayed(repeatBackspace, BackspaceRepeatController.REPEAT_INTERVAL_MILLIS)
+    }
+
+    private fun stopBackspaceRepeat() {
+        isBackspaceHeld = false
+        backspaceRepeater.onRelease()
+        backspaceHandler.removeCallbacks(repeatBackspace)
+    }
+
+    private fun deleteOneCharacter() {
         currentInputConnection?.deleteSurroundingText(1, 0)
         refreshSuggestions()
     }
@@ -174,7 +220,11 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     private fun refreshSuggestions() {
-        currentSuggestions = if (suggestionsAllowed && pages.current == KeyboardPage.ALPHABETIC) suggestions.suggestionsFor(currentComposingWord()) else emptyList()
+        currentSuggestions = if (suggestionsAllowed && pages.current == KeyboardPage.ALPHABETIC) {
+            suggestions.forLanguage(languages.current).suggestionsFor(currentComposingWord())
+        } else {
+            emptyList()
+        }
         renderKeyboard()
     }
 
@@ -187,7 +237,7 @@ class XiKeyInputMethodService : InputMethodService() {
         return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD || variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
     }
 
-    private fun loadBundledDialectWords(): List<String> = assets.open("voralex_words.json").bufferedReader(Charsets.UTF_8).use { reader ->
+    private fun loadBundledWords(assetName: String): List<String> = assets.open(assetName).bufferedReader(Charsets.UTF_8).use { reader ->
         val array = JSONArray(reader.readText())
         List(array.length()) { index -> array.getString(index) }
     }
