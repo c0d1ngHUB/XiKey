@@ -69,7 +69,11 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun bottomRow(): LinearLayout = when (pages.current) {
         KeyboardPage.ALPHABETIC -> keyRow(
             listOf(
-                actionButton("?123", "Zahlen und Sonderzeichen anzeigen", KeyKind.ACCENT) { pages.showPrimarySymbols(); renderKeyboard() },
+                actionButton("?123", "Zahlen und Sonderzeichen anzeigen", KeyKind.ACCENT) {
+                    shift.reset()
+                    pages.showPrimarySymbols()
+                    renderKeyboard()
+                },
                 languageButton(),
                 actionButton(",", "Komma") { commit(",") },
                 actionButton("Leertaste", "Leertaste", KeyKind.SPACE) { commit(" ") },

@@ -9,6 +9,10 @@ class KeyboardShiftController {
         isShifted = !isShifted
     }
 
+    fun reset() {
+        isShifted = false
+    }
+
     fun applyTo(key: String): String {
         val output = if (isShifted && key == "ß") "ẞ" else if (isShifted) key.uppercase() else key
         isShifted = false

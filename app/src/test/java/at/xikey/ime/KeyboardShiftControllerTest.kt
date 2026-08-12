@@ -25,4 +25,15 @@ class KeyboardShiftControllerTest {
         assertEquals("ẞ", shift.applyTo("ß"))
         assertFalse(shift.isShifted)
     }
+
+    @Test
+    fun `reset cancels a pending shift without committing a key`() {
+        val shift = KeyboardShiftController()
+
+        shift.toggle()
+        shift.reset()
+
+        assertFalse(shift.isShifted)
+        assertEquals("a", shift.applyTo("a"))
+    }
 }
