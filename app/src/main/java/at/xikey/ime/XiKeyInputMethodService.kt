@@ -10,6 +10,13 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Space
 
+internal object KeyboardSurfaceMetrics {
+    const val keyHeightDp = 46
+    const val navigationSpacerDp = 44
+    const val includeFontPadding = true
+    const val singleLineLabels = true
+}
+
 /**
  * Local-only Android IME. It deliberately has no network permission, telemetry, or remote prediction path.
  * The visual language follows the compact, dark, rounded-key treatment familiar from modern mobile keyboards.
@@ -40,7 +47,7 @@ class XiKeyInputMethodService : InputMethodService() {
         root.addView(bottomRow())
         // Gesture navigation occupies the bottom of the IME surface and intercepts touches there.
         // Reserve that area so the action row stays fully visible and touchable above it.
-        root.addView(Space(this), LinearLayout.LayoutParams(0, dp(NAVIGATION_SPACER_DP)))
+        root.addView(Space(this), LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.navigationSpacerDp)))
     }
 
     private fun renderAlphabeticPage(root: LinearLayout) {
@@ -159,7 +166,9 @@ class XiKeyInputMethodService : InputMethodService() {
         minHeight = 0
         minimumWidth = 0
         minimumHeight = 0
-        includeFontPadding = false
+        includeFontPadding = KeyboardSurfaceMetrics.includeFontPadding
+        isSingleLine = KeyboardSurfaceMetrics.singleLineLabels
+        setPadding(0, 0, 0, 0)
         gravity = Gravity.CENTER
         background = roundedBackground(kind.background)
         setOnClickListener { action?.invoke() }
@@ -170,7 +179,7 @@ class XiKeyInputMethodService : InputMethodService() {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
         keys.zip(weights).forEach { (key, weight) ->
-            addView(key, LinearLayout.LayoutParams(0, dp(KEY_HEIGHT_DP), weight).apply {
+            addView(key, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), weight).apply {
                 setMargins(dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP))
             })
         }
@@ -194,9 +203,7 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     private companion object {
-        const val KEY_HEIGHT_DP = 38
         const val KEY_GAP_DP = 2
-        const val NAVIGATION_SPACER_DP = 18
         const val CORNER_RADIUS_DP = 9
         val KEYBOARD_BACKGROUND: Int = Color.rgb(20, 23, 27)
         val KEY_BACKGROUND: Int = Color.rgb(47, 51, 57)

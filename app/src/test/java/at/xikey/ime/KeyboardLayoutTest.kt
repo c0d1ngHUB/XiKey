@@ -20,4 +20,24 @@ class KeyboardLayoutTest {
 
         assertEquals(listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"), layout.rows.first())
     }
+
+    @Test
+    fun `navigation spacer keeps the action row clear of Android navigation controls`() {
+        assertEquals(44, KeyboardSurfaceMetrics.navigationSpacerDp)
+    }
+
+    @Test
+    fun `key height leaves room for uncropped glyphs on the physical Redmi`() {
+        assertEquals(46, KeyboardSurfaceMetrics.keyHeightDp)
+    }
+
+    @Test
+    fun `keyboard keys retain font padding to avoid cropped glyphs on the physical Redmi`() {
+        assertTrue(KeyboardSurfaceMetrics.includeFontPadding)
+    }
+
+    @Test
+    fun `keyboard key labels stay on one line to prevent action-label wrapping`() {
+        assertTrue(KeyboardSurfaceMetrics.singleLineLabels)
+    }
 }
