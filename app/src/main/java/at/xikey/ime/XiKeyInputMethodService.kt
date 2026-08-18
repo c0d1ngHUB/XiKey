@@ -1,12 +1,13 @@
 package at.xikey.ime
 
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -41,6 +42,16 @@ class XiKeyInputMethodService : InputMethodService() {
     private var currentSuggestions: List<String> = emptyList()
     private var suggestionsAllowed = false
     private var isBackspaceHeld = false
+    private var audioManager: AudioManager? = null
+    private var currentImeOptions: Int = 0
+
+    // ── Colors from resources ─────────────────────────────────────
+    private var colKeyboardBg: Int = 0
+    private var colKeyBg: Int = 0
+    private var colKeyAccent: Int = 0
+    private var colSpaceBg: Int = 0
+    private var colSuggestionBg: Int = 0
+    private var colKeyText: Int = 0
 
     // ── Cached views ──────────────────────────────────────────────
     private var suggestionBar: LinearLayout? = null
@@ -78,6 +89,13 @@ class XiKeyInputMethodService : InputMethodService() {
     // ── Lifecycle ─────────────────────────────────────────────────
     override fun onCreate() {
         super.onCreate()
+        audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
+        colKeyboardBg = getColor(R.color.keyboard_background)
+        colKeyBg = getColor(R.color.key_background)
+        colKeyAccent = getColor(R.color.key_accent)
+        colSpaceBg = getColor(R.color.space_background)
+        colSuggestionBg = getColor(R.color.suggestion_background)
+        colKeyText = getColor(R.color.key_text)
         val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
         languages = KeyboardLanguageController(KeyboardLanguagePreference.restore(storedTag))
         suggestions = SuggestionWordLists(
@@ -97,6 +115,7 @@ class XiKeyInputMethodService : InputMethodService() {
         suggestionsAllowed = !isSensitiveInput(attribute)
         currentSuggestions = emptyList()
         shift.reset()
+        currentImeOptions = attribute?.imeOptions ?: 0
     }
 
     override fun onUpdateSelection(
@@ -115,7 +134,7 @@ class XiKeyInputMethodService : InputMethodService() {
     override fun onCreateInputView(): View = LinearLayout(this).also { root ->
         root.orientation = LinearLayout.VERTICAL
         root.gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
-        root.setBackgroundColor(KEYBOARD_BACKGROUND)
+        root.setBackgroundColor(colKeyboardBg)
         root.setPadding(dp(4), dp(4), dp(4), dp(6))
         keyboard = root
 
@@ -125,7 +144,7 @@ class XiKeyInputMethodService : InputMethodService() {
             gravity = Gravity.CENTER
             visibility = View.GONE
             for (i in 0 until 3) {
-                val btn = makeButton("", "", KeyKind.SUGGESTION)
+                val btn = makeButton("", "", keyKindSuggestion)
                 suggestionButtons.add(btn)
                 addView(btn, LinearLayout.LayoutParams(0, dp(SUGGESTION_HEIGHT_DP), 1f).apply {
                     setMargins(dp(KEY_GAP_DP), 0, dp(KEY_GAP_DP), dp(KEY_GAP_DP))
@@ -139,12 +158,12 @@ class XiKeyInputMethodService : InputMethodService() {
         root.addView(contentArea)
 
         // Bottom bar (persistent)
-        bottomLeftBtn = makeButton("", "", KeyKind.ACCENT)
-        bottomLangBtn = makeButton("", "", KeyKind.ACCENT)
-        bottomCommaBtn = makeButton(",", "Komma", KeyKind.NORMAL)
-        bottomSpaceBtn = makeButton("␣", "Leertaste", KeyKind.SPACE)
-        bottomPeriodBtn = makeButton(".", "Punkt", KeyKind.NORMAL)
-        bottomEnterBtn = makeButton("↵", "Eingabe", KeyKind.ACCENT)
+        bottomLeftBtn = makeButton("", "", keyKindAccent)
+        bottomLangBtn = makeButton("", "", keyKindAccent)
+        bottomCommaBtn = makeButton(",", "Komma", keyKindNormal)
+        bottomSpaceBtn = makeButton("␣", "Leertaste", keyKindSpace)
+        bottomPeriodBtn = makeButton(".", "Punkt", keyKindNormal)
+        bottomEnterBtn = makeButton("↵", "Eingabe", keyKindAccent)
         bottomBar = keyRow(
             listOf(bottomLeftBtn, bottomLangBtn, bottomCommaBtn, bottomSpaceBtn, bottomPeriodBtn, bottomEnterBtn),
             listOf(1.25f, 1.25f, 0.9f, 3.2f, 0.9f, 1.25f),
@@ -165,16 +184,18 @@ class XiKeyInputMethodService : InputMethodService() {
         }
 
         // Set up persistent buttons
-        bottomSpaceBtn.setOnClickListener { commitAndRefresh(" ") }
-        bottomCommaBtn.setOnClickListener { commitAndRefresh(",") }
-        bottomPeriodBtn.setOnClickListener { commitAndRefresh(".") }
+        bottomSpaceBtn.setOnClickListener { performKeyFeedback(bottomSpaceBtn); commitAndRefresh(" ") }
+        bottomCommaBtn.setOnClickListener { performKeyFeedback(bottomCommaBtn); commitAndRefresh(",") }
+        bottomPeriodBtn.setOnClickListener { performKeyFeedback(bottomPeriodBtn); commitAndRefresh(".") }
         bottomEnterBtn.setOnClickListener {
+            performKeyFeedback(bottomEnterBtn)
             clearSuggestions()
             currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
             currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
             updateKeyboard()
         }
         bottomLeftBtn.setOnClickListener {
+            performKeyFeedback(bottomLeftBtn)
             if (pages.current == KeyboardPage.ALPHABETIC) {
                 shift.reset(); clearSuggestions(); pages.showPrimarySymbols()
             } else {
@@ -183,6 +204,7 @@ class XiKeyInputMethodService : InputMethodService() {
             updateKeyboard()
         }
         bottomLangBtn.setOnClickListener {
+            performKeyFeedback(bottomLangBtn)
             val language = languages.switchToNext()
             getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit().putString(PREFERENCE_LANGUAGE_TAG, KeyboardLanguagePreference.store(language)).apply()
             suggestionsAllowed = !isSensitiveInput(currentInputEditorInfo)
@@ -218,7 +240,7 @@ class XiKeyInputMethodService : InputMethodService() {
                 btn.text = suggestion
                 btn.visibility = View.VISIBLE
                 btn.contentDescription = "Vorschlag $suggestion"
-                btn.setOnClickListener { acceptSuggestion(suggestion) }
+                btn.setOnClickListener { performKeyFeedback(btn); acceptSuggestion(suggestion) }
             } else {
                 btn.text = ""
                 btn.visibility = View.GONE
@@ -323,31 +345,40 @@ class XiKeyInputMethodService : InputMethodService() {
         }
         bottomLangBtn.text = languageLabel()
         bottomLangBtn.contentDescription = "Sprache wechseln"
+        bottomEnterBtn.text = enterIcon()
     }
 
     // ── Button configuration (no allocation) ───────────────────────
+    private fun performKeyFeedback(view: View) {
+        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK)
+    }
+
     private fun configureKeyButton(btn: Button, label: String, key: String) {
         btn.text = label
         btn.contentDescription = "Taste $label"
         btn.textSize = 18f
-        btn.background = roundedBackground(KEY_BACKGROUND)
-        btn.setOnClickListener { commitAndRefresh(shift.applyTo(key)); updateKeyboard() }
+        btn.background = roundedBackground(colKeyBg)
+        btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(shift.applyTo(key)); updateKeyboard() }
+        btn.setOnLongClickListener { handleLongPress(btn, key) }
     }
 
     private fun configureSymbolButton(btn: Button, symbol: String) {
         btn.text = symbol
         btn.contentDescription = "Zeichen $symbol"
         btn.textSize = 18f
-        btn.background = roundedBackground(KEY_BACKGROUND)
-        btn.setOnClickListener { commitAndRefresh(symbol) }
+        btn.background = roundedBackground(colKeyBg)
+        btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(symbol) }
+        btn.setOnLongClickListener(null)
     }
 
     private fun configureShiftButton(btn: Button) {
         btn.text = shiftLabel()
         btn.contentDescription = "Umschalttaste; zweimal tippen für Feststelltaste"
         btn.textSize = 14f
-        btn.background = roundedBackground(KEY_ACCENT)
-        btn.setOnClickListener { shift.toggle(); updateKeyboard() }
+        btn.background = roundedBackground(colKeyAccent)
+        btn.setOnClickListener { performKeyFeedback(btn); shift.toggle(); updateKeyboard() }
+        btn.setOnLongClickListener(null)
         shiftBtn = btn
     }
 
@@ -355,8 +386,9 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.text = "⌫"
         btn.contentDescription = "Löschen; gedrückt halten für fortlaufendes Löschen"
         btn.textSize = 14f
-        btn.background = roundedBackground(KEY_ACCENT)
-        btn.setOnClickListener { deleteOneCharacter() }
+        btn.background = roundedBackground(colKeyAccent)
+        btn.setOnClickListener { performKeyFeedback(btn); deleteOneCharacter() }
+        btn.setOnLongClickListener(null)
         btn.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> startBackspaceRepeat()
@@ -371,11 +403,9 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.text = if (secondary) "1/2" else "=\\<"
         btn.contentDescription = if (secondary) "Häufige Sonderzeichen anzeigen" else "Weitere Sonderzeichen anzeigen"
         btn.textSize = 14f
-        btn.background = roundedBackground(KEY_ACCENT)
-        btn.setOnClickListener {
-            if (secondary) pages.showPrimarySymbols() else pages.showSecondarySymbols()
-            updateKeyboard()
-        }
+        btn.background = roundedBackground(colKeyAccent)
+        btn.setOnClickListener { performKeyFeedback(btn); if (secondary) pages.showPrimarySymbols() else pages.showSecondarySymbols(); updateKeyboard() }
+        btn.setOnLongClickListener(null)
     }
 
     // ── Backspace ─────────────────────────────────────────────────
@@ -439,6 +469,44 @@ class XiKeyInputMethodService : InputMethodService() {
         else -> "⇩"
     }
 
+    /** P1-4: Context-sensitive Enter key icon based on IME options. */
+    private fun enterIcon(): String = when (currentImeOptions and EditorInfo.IME_MASK_ACTION) {
+        EditorInfo.IME_ACTION_GO -> "→"
+        EditorInfo.IME_ACTION_SEARCH -> "🔍"
+        EditorInfo.IME_ACTION_SEND -> "➤"
+        EditorInfo.IME_ACTION_NEXT -> "⇥"
+        EditorInfo.IME_ACTION_DONE -> "✓"
+        else -> "↵"
+    }
+
+    /** P1-5: Long-press character variants (like Gboard accent popups). */
+    private val longPressMap = mapOf(
+        "a" to listOf("ä", "à", "á", "â", "æ"),
+        "o" to listOf("ö", "ò", "ó", "ô", "œ"),
+        "u" to listOf("ü", "ù", "ú", "û"),
+        "s" to listOf("ß", "ś", "š"),
+        "e" to listOf("é", "è", "ê", "ë"),
+        "i" to listOf("ì", "í", "î", "ï"),
+        "n" to listOf("ñ"),
+        "c" to listOf("ç", "ć", "č"),
+        "y" to listOf("ÿ"),
+        "z" to listOf("ź", "ż"),
+    )
+
+    private fun handleLongPress(btn: View, key: String): Boolean {
+        val variants = longPressMap[key] ?: return false
+        if (variants.isEmpty()) return false
+        // Commit the first variant (most common); future: show popup chooser
+        val variant = variants[0]
+        val toCommit = if (shift.isShifted) variant.uppercase() else variant
+        performKeyFeedback(btn)
+        currentInputConnection?.commitText(toCommit, 1)
+        if (!shift.isCapsLocked) shift.reset()
+        clearSuggestions()
+        updateKeyboard()
+        return true
+    }
+
     private fun loadBundledWords(assetName: String): List<String> = assets.open(assetName).bufferedReader(Charsets.UTF_8).use { reader ->
         val array = JSONArray(reader.readText())
         List(array.length()) { index -> array.getString(index) }
@@ -449,8 +517,8 @@ class XiKeyInputMethodService : InputMethodService() {
         text = label
         contentDescription = description
         isAllCaps = false
-        textSize = if (kind == KeyKind.NORMAL) 18f else 14f
-        setTextColor(KEY_TEXT)
+        textSize = if (kind.isNormal) 18f else 14f
+        setTextColor(colKeyText)
         minWidth = 0; minHeight = 0; minimumWidth = 0; minimumHeight = 0
         includeFontPadding = KeyboardSurfaceMetrics.includeFontPadding
         isSingleLine = KeyboardSurfaceMetrics.singleLineLabels
@@ -464,7 +532,7 @@ class XiKeyInputMethodService : InputMethodService() {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
         for (i in 0 until maxKeys) {
-            val btn = makeButton("", "", KeyKind.NORMAL)
+            val btn = makeButton("", "", keyKindNormal)
             addView(btn, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), 1f).apply {
                 setMargins(dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP))
             })
@@ -482,20 +550,19 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun roundedBackground(color: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = dp(CORNER_RADIUS_DP).toFloat() }
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private enum class KeyKind(val background: Int) { NORMAL(KEY_BACKGROUND), ACCENT(KEY_ACCENT), SPACE(SPACE_BACKGROUND), SUGGESTION(SUGGESTION_BACKGROUND) }
+    private data class KeyKind(val background: Int, val isNormal: Boolean = false)
+
+    private val keyKindNormal get() = KeyKind(colKeyBg, isNormal = true)
+    private val keyKindAccent get() = KeyKind(colKeyAccent)
+    private val keyKindSpace get() = KeyKind(colSpaceBg)
+    private val keyKindSuggestion get() = KeyKind(colSuggestionBg)
 
     private companion object {
         const val PREFERENCES_NAME = "xikey_preferences"
         const val PREFERENCE_LANGUAGE_TAG = "language_tag"
-        const val KEY_GAP_DP = 2
+        const val KEY_GAP_DP = 4
         const val CORNER_RADIUS_DP = 9
         const val SUGGESTION_HEIGHT_DP = 38
         const val MAX_CURSOR_LOOKBACK = 64
-        val KEYBOARD_BACKGROUND: Int = Color.rgb(20, 23, 27)
-        val KEY_BACKGROUND: Int = Color.rgb(47, 51, 57)
-        val KEY_ACCENT: Int = Color.rgb(47, 92, 103)
-        val SPACE_BACKGROUND: Int = Color.rgb(57, 62, 68)
-        val SUGGESTION_BACKGROUND: Int = Color.rgb(37, 74, 82)
-        val KEY_TEXT: Int = Color.rgb(245, 247, 248)
     }
 }
