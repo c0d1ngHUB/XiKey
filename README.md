@@ -58,7 +58,11 @@ app/build/outputs/apk/debug/app-debug.apk
 app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
-Die Release-APK ist absichtlich **nicht signiert** und muss vor einer Distribution mit einem eigenen Keystore signiert werden.
+Die Release-APK ist absichtlich **nicht signiert**, sofern keine Signatur-Secrets konfiguriert sind. In GitHub Actions wird der Release-Build automatisch mit hinterlegten Secrets signiert, sobald `XIKEY_STORE_FILE` (base64-kodierter Keystore), `XIKEY_STORE_PASSWORD`, `XIKEY_KEY_ALIAS` und `XIKEY_KEY_PASSWORD` als Repository-Secrets gesetzt sind. Ohne diese Secrets wird eine unsignierte Release-APK gebaut.
+
+## Screenshots
+
+> Screenshots folgen in einer kommenden Veröffentlichung. Bis dahin kann die Debug-APK direkt auf einem Gerät installiert und ausprobiert werden (siehe oben).
 
 ## Architektur
 
