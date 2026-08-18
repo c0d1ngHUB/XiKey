@@ -11,15 +11,31 @@ android {
         applicationId = "at.xikey.ime"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            val storeFilePath = System.getenv("XIKEY_STORE_FILE")
+            if (storeFilePath != null && file(storeFilePath).exists()) {
+                keyAlias = System.getenv("XIKEY_KEY_ALIAS")
+                keyPassword = System.getenv("XIKEY_KEY_PASSWORD")
+                storeFile = file(storeFilePath)
+                storePassword = System.getenv("XIKEY_STORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            val storeFilePath = System.getenv("XIKEY_STORE_FILE")
+            if (storeFilePath != null && file(storeFilePath).exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -33,4 +49,7 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }
