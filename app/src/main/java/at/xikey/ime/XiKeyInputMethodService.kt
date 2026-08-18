@@ -25,6 +25,10 @@ internal object KeyboardSurfaceMetrics {
 
 /**
  * Local-only Android IME. VoraLex suggestions are read from an APK asset; no text ever leaves the device.
+ *
+ * Rendering strategy: the keyboard view tree is built once in [onCreateInputView]; subsequent
+ * keystrokes call [updateKeyboard] which reconfigures existing Button labels, visibility, and
+ * click listeners in place — no Views are created or destroyed after the initial layout.
  */
 class XiKeyInputMethodService : InputMethodService() {
     private lateinit var languages: KeyboardLanguageController
@@ -37,6 +41,32 @@ class XiKeyInputMethodService : InputMethodService() {
     private var currentSuggestions: List<String> = emptyList()
     private var suggestionsAllowed = false
     private var isBackspaceHeld = false
+
+    // ── Cached views ──────────────────────────────────────────────
+    private var suggestionBar: LinearLayout? = null
+    private val suggestionButtons = mutableListOf<Button>()
+    private var contentArea: LinearLayout? = null
+    private var bottomBar: LinearLayout? = null
+
+    // Reusable key-row pools: each row is a LinearLayout holding Buttons
+    private val alphabetRows = mutableListOf<LinearLayout>()
+    private val symbolRows = mutableListOf<LinearLayout>()
+    private val maxRows = 4 // max rows for alphabet page (3 letter rows + bottom area handled separately)
+    private val maxSymbolRows = 5
+    private val keysPerRowPool = 12 // max keys per row (shift + 8 letters + backspace = 11)
+
+    // Bottom bar buttons (persistent)
+    private lateinit var bottomLeftBtn: Button   // ?123 / ABC
+    private lateinit var bottomLangBtn: Button    // VBG / EN
+    private lateinit var bottomCommaBtn: Button
+    private lateinit var bottomSpaceBtn: Button
+    private lateinit var bottomPeriodBtn: Button
+    private lateinit var bottomEnterBtn: Button
+
+    // Shift button (persistent across renders)
+    private var shiftBtn: Button? = null
+    private var deleteBtn: Button? = null
+
     private val repeatBackspace = object : Runnable {
         override fun run() {
             if (!isBackspaceHeld) return
@@ -45,6 +75,7 @@ class XiKeyInputMethodService : InputMethodService() {
         }
     }
 
+    // ── Lifecycle ─────────────────────────────────────────────────
     override fun onCreate() {
         super.onCreate()
         val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
@@ -80,97 +111,274 @@ class XiKeyInputMethodService : InputMethodService() {
         if (oldSelStart != newSelStart || oldSelEnd != newSelEnd) refreshSuggestions()
     }
 
+    // ── View creation (once) ──────────────────────────────────────
     override fun onCreateInputView(): View = LinearLayout(this).also { root ->
         root.orientation = LinearLayout.VERTICAL
         root.gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
         root.setBackgroundColor(KEYBOARD_BACKGROUND)
         root.setPadding(dp(4), dp(4), dp(4), dp(6))
         keyboard = root
-        renderKeyboard()
-    }
 
-    private fun renderKeyboard() {
-        val root = keyboard ?: return
-        root.removeAllViews()
-        root.addView(suggestionRow())
-        when (pages.current) {
-            KeyboardPage.ALPHABETIC -> renderAlphabeticPage(root)
-            KeyboardPage.SYMBOLS -> renderSymbolsPage(root, KeyboardLayout.symbols(), secondary = false)
-            KeyboardPage.SYMBOLS_SECONDARY -> renderSymbolsPage(root, KeyboardLayout.secondarySymbols(), secondary = true)
+        // Suggestion bar (reused)
+        suggestionBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            for (i in 0 until 3) {
+                val btn = makeButton("", "", KeyKind.SUGGESTION)
+                suggestionButtons.add(btn)
+                addView(btn, LinearLayout.LayoutParams(0, dp(SUGGESTION_HEIGHT_DP), 1f).apply {
+                    setMargins(dp(KEY_GAP_DP), 0, dp(KEY_GAP_DP), dp(KEY_GAP_DP))
+                })
+            }
         }
-        root.addView(bottomRow())
+        root.addView(suggestionBar)
+
+        // Content area (rows added/hidden here)
+        contentArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(contentArea)
+
+        // Bottom bar (persistent)
+        bottomLeftBtn = makeButton("", "", KeyKind.ACCENT)
+        bottomLangBtn = makeButton("", "", KeyKind.ACCENT)
+        bottomCommaBtn = makeButton(",", "Komma", KeyKind.NORMAL)
+        bottomSpaceBtn = makeButton("␣", "Leertaste", KeyKind.SPACE)
+        bottomPeriodBtn = makeButton(".", "Punkt", KeyKind.NORMAL)
+        bottomEnterBtn = makeButton("↵", "Eingabe", KeyKind.ACCENT)
+        bottomBar = keyRow(
+            listOf(bottomLeftBtn, bottomLangBtn, bottomCommaBtn, bottomSpaceBtn, bottomPeriodBtn, bottomEnterBtn),
+            listOf(1.25f, 1.25f, 0.9f, 3.2f, 0.9f, 1.25f),
+        )
+        root.addView(bottomBar)
+
+        // Navigation spacer
         root.addView(Space(this), LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.navigationSpacerDp)))
+
+        // Pre-create row pools for alphabet and symbol pages
+        for (i in 0 until maxRows) {
+            alphabetRows.add(createKeyRowPool(keysPerRowPool))
+            contentArea?.addView(alphabetRows[i])
+        }
+        for (i in 0 until maxSymbolRows) {
+            symbolRows.add(createKeyRowPool(keysPerRowPool))
+            contentArea?.addView(symbolRows[i])
+        }
+
+        // Set up persistent buttons
+        bottomSpaceBtn.setOnClickListener { commitAndRefresh(" ") }
+        bottomCommaBtn.setOnClickListener { commitAndRefresh(",") }
+        bottomPeriodBtn.setOnClickListener { commitAndRefresh(".") }
+        bottomEnterBtn.setOnClickListener {
+            clearSuggestions()
+            currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+            currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+            updateKeyboard()
+        }
+        bottomLeftBtn.setOnClickListener {
+            if (pages.current == KeyboardPage.ALPHABETIC) {
+                shift.reset(); clearSuggestions(); pages.showPrimarySymbols()
+            } else {
+                pages.toggle()
+            }
+            updateKeyboard()
+        }
+        bottomLangBtn.setOnClickListener {
+            val language = languages.switchToNext()
+            getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit().putString(PREFERENCE_LANGUAGE_TAG, KeyboardLanguagePreference.store(language)).apply()
+            suggestionsAllowed = !isSensitiveInput(currentInputEditorInfo)
+            clearSuggestions()
+            updateKeyboard()
+        }
+
+        updateKeyboard()
     }
 
-    private fun suggestionRow(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER
-        visibility = if (currentSuggestions.isEmpty()) View.GONE else View.VISIBLE
-        currentSuggestions.forEach { suggestion ->
-            addView(actionButton(suggestion, "Vorschlag $suggestion", KeyKind.SUGGESTION) {
-                acceptSuggestion(suggestion)
-            }, LinearLayout.LayoutParams(0, dp(SUGGESTION_HEIGHT_DP), 1f).apply {
-                setMargins(dp(KEY_GAP_DP), 0, dp(KEY_GAP_DP), dp(KEY_GAP_DP))
-            })
+    // ── Update (no View creation) ─────────────────────────────────
+    private fun updateKeyboard() {
+        updateSuggestionBar()
+        when (pages.current) {
+            KeyboardPage.ALPHABETIC -> showAlphabeticRows()
+            KeyboardPage.SYMBOLS -> showSymbolRows(KeyboardLayout.symbols(), secondary = false)
+            KeyboardPage.SYMBOLS_SECONDARY -> showSymbolRows(KeyboardLayout.secondarySymbols(), secondary = true)
+        }
+        updateBottomBar()
+    }
+
+    private fun updateSuggestionBar() {
+        val bar = suggestionBar ?: return
+        if (currentSuggestions.isEmpty()) {
+            bar.visibility = View.GONE
+            return
+        }
+        bar.visibility = View.VISIBLE
+        for (i in 0 until suggestionButtons.size) {
+            val btn = suggestionButtons[i]
+            if (i < currentSuggestions.size) {
+                val suggestion = currentSuggestions[i]
+                btn.text = suggestion
+                btn.visibility = View.VISIBLE
+                btn.contentDescription = "Vorschlag $suggestion"
+                btn.setOnClickListener { acceptSuggestion(suggestion) }
+            } else {
+                btn.text = ""
+                btn.visibility = View.GONE
+                btn.setOnClickListener(null)
+            }
         }
     }
 
-    private fun renderAlphabeticPage(root: LinearLayout) {
-        val rows = KeyboardLayout.forLanguage(languages.current).rows
-        rows.forEachIndexed { index, row ->
-            val buttons = if (index == rows.lastIndex) listOf(shiftButton()) + row.map(::keyButton) + listOf(deleteButton()) else row.map(::keyButton)
-            root.addView(keyRow(buttons))
+    private fun showAlphabeticRows() {
+        // Hide all symbol rows
+        symbolRows.forEach { it.visibility = View.GONE }
+
+        val layout = KeyboardLayout.forLanguage(languages.current)
+        val rows = layout.rows
+
+        for (rowIndex in 0 until maxRows) {
+            val row = alphabetRows[rowIndex]
+            if (rowIndex >= rows.size) {
+                row.visibility = View.GONE
+                continue
+            }
+            row.visibility = View.VISIBLE
+            val keys = rows[rowIndex]
+            val isLastRow = rowIndex == rows.lastIndex
+
+            val allKeys = if (isLastRow) listOf(null) + keys + listOf(null) else keys.map { it }
+            // null marks shift (first) and delete (last) positions
+
+            for (pos in 0 until keysPerRowPool) {
+                val btn = row.getChildAt(pos) as? Button
+                if (btn == null) continue
+
+                if (pos >= allKeys.size) {
+                    btn.visibility = View.GONE
+                    continue
+                }
+
+                btn.visibility = View.VISIBLE
+
+                if (isLastRow && pos == 0) {
+                    // Shift button
+                    configureShiftButton(btn)
+                } else if (isLastRow && pos == allKeys.lastIndex) {
+                    // Delete button
+                    configureDeleteButton(btn)
+                } else {
+                    val key = allKeys[pos] as String
+                    val label = if (shift.isShifted && key == "ß") "ẞ" else if (shift.isShifted) key.uppercase() else key
+                    configureKeyButton(btn, label, key)
+                }
+            }
         }
     }
 
-    private fun renderSymbolsPage(root: LinearLayout, layout: KeyboardLayout, secondary: Boolean) {
-        layout.rows.forEachIndexed { index, row ->
-            val buttons = if (index == layout.rows.lastIndex) listOf(symbolPageButton(secondary)) + row.map(::symbolButton) + listOf(deleteButton()) else row.map(::symbolButton)
-            root.addView(keyRow(buttons))
+    private fun showSymbolRows(layout: KeyboardLayout, secondary: Boolean) {
+        // Hide all alphabet rows
+        alphabetRows.forEach { it.visibility = View.GONE }
+
+        val rows = layout.rows
+        for (rowIndex in 0 until maxSymbolRows) {
+            val row = symbolRows[rowIndex]
+            if (rowIndex >= rows.size) {
+                row.visibility = View.GONE
+                continue
+            }
+            row.visibility = View.VISIBLE
+            val keys = rows[rowIndex]
+            val isLastRow = rowIndex == rows.lastIndex
+            val allKeys = if (isLastRow) listOf(null) + keys + listOf(null) else keys.map { it }
+
+            for (pos in 0 until keysPerRowPool) {
+                val btn = row.getChildAt(pos) as? Button
+                if (btn == null) continue
+
+                if (pos >= allKeys.size) {
+                    btn.visibility = View.GONE
+                    continue
+                }
+
+                btn.visibility = View.VISIBLE
+
+                if (isLastRow && pos == 0) {
+                    // Symbol page toggle button
+                    configureSymbolPageButton(btn, secondary)
+                } else if (isLastRow && pos == allKeys.lastIndex) {
+                    configureDeleteButton(btn)
+                } else {
+                    val symbol = allKeys[pos] as String
+                    configureSymbolButton(btn, symbol)
+                }
+            }
         }
     }
 
-    private fun bottomRow(): LinearLayout = keyRow(
-        listOf(
-            if (pages.current == KeyboardPage.ALPHABETIC) actionButton("?123", "Zahlen und Sonderzeichen anzeigen", KeyKind.ACCENT) {
-                shift.reset(); clearSuggestions(); pages.showPrimarySymbols(); renderKeyboard()
-            } else letterPageButton(),
-            languageButton(),
-            actionButton(",", "Komma") { commitAndRefresh(",") },
-            actionButton("Leertaste", "Leertaste", KeyKind.SPACE) { commitAndRefresh(" ") },
-            actionButton(".", "Punkt") { commitAndRefresh(".") },
-            enterButton(),
-        ),
-        listOf(1.25f, 1.25f, 0.9f, 3.2f, 0.9f, 1.25f),
-    )
-
-    private fun languageButton(): Button = actionButton(languageLabel(), "Sprache wechseln", KeyKind.ACCENT) {
-        val language = languages.switchToNext()
-        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit().putString(PREFERENCE_LANGUAGE_TAG, KeyboardLanguagePreference.store(language)).apply()
-        suggestionsAllowed = !isSensitiveInput(currentInputEditorInfo)
-        clearSuggestions()
-        renderKeyboard()
+    private fun updateBottomBar() {
+        if (pages.current == KeyboardPage.ALPHABETIC) {
+            bottomLeftBtn.text = "?123"
+            bottomLeftBtn.contentDescription = "Zahlen und Sonderzeichen anzeigen"
+        } else {
+            bottomLeftBtn.text = "ABC"
+            bottomLeftBtn.contentDescription = "Buchstaben anzeigen"
+        }
+        bottomLangBtn.text = languageLabel()
+        bottomLangBtn.contentDescription = "Sprache wechseln"
     }
 
-    private fun shiftButton(): Button = actionButton("⇧", "Umschalttaste", KeyKind.ACCENT) { shift.toggle(); renderKeyboard() }
-
-    private fun letterPageButton(): Button = actionButton("ABC", "Buchstaben anzeigen", KeyKind.ACCENT) { pages.toggle(); clearSuggestions(); renderKeyboard() }
-
-    private fun symbolPageButton(secondary: Boolean): Button = actionButton(if (secondary) "1/2" else "=\\<", if (secondary) "Häufige Sonderzeichen anzeigen" else "Weitere Sonderzeichen anzeigen", KeyKind.ACCENT) {
-        if (secondary) pages.showPrimarySymbols() else pages.showSecondarySymbols()
-        renderKeyboard()
+    // ── Button configuration (no allocation) ───────────────────────
+    private fun configureKeyButton(btn: Button, label: String, key: String) {
+        btn.text = label
+        btn.contentDescription = "Taste $label"
+        btn.textSize = 18f
+        btn.background = roundedBackground(KEY_BACKGROUND)
+        btn.setOnClickListener { commitAndRefresh(shift.applyTo(key)); updateKeyboard() }
     }
 
-    private fun deleteButton(): Button = actionButton("⌫", "Löschen; gedrückt halten für fortlaufendes Löschen", KeyKind.ACCENT).apply {
-        setOnTouchListener { _, event ->
+    private fun configureSymbolButton(btn: Button, symbol: String) {
+        btn.text = symbol
+        btn.contentDescription = "Zeichen $symbol"
+        btn.textSize = 18f
+        btn.background = roundedBackground(KEY_BACKGROUND)
+        btn.setOnClickListener { commitAndRefresh(symbol) }
+    }
+
+    private fun configureShiftButton(btn: Button) {
+        btn.text = shiftLabel()
+        btn.contentDescription = "Umschalttaste; zweimal tippen für Feststelltaste"
+        btn.textSize = 14f
+        btn.background = roundedBackground(KEY_ACCENT)
+        btn.setOnClickListener { shift.toggle(); updateKeyboard() }
+        shiftBtn = btn
+    }
+
+    private fun configureDeleteButton(btn: Button) {
+        btn.text = "⌫"
+        btn.contentDescription = "Löschen; gedrückt halten für fortlaufendes Löschen"
+        btn.textSize = 14f
+        btn.background = roundedBackground(KEY_ACCENT)
+        btn.setOnClickListener { deleteOneCharacter() }
+        btn.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> startBackspaceRepeat()
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> stopBackspaceRepeat()
             }
             true
         }
+        deleteBtn = btn
     }
 
+    private fun configureSymbolPageButton(btn: Button, secondary: Boolean) {
+        btn.text = if (secondary) "1/2" else "=\\<"
+        btn.contentDescription = if (secondary) "Häufige Sonderzeichen anzeigen" else "Weitere Sonderzeichen anzeigen"
+        btn.textSize = 14f
+        btn.background = roundedBackground(KEY_ACCENT)
+        btn.setOnClickListener {
+            if (secondary) pages.showPrimarySymbols() else pages.showSecondarySymbols()
+            updateKeyboard()
+        }
+    }
+
+    // ── Backspace ─────────────────────────────────────────────────
     private fun startBackspaceRepeat() {
         isBackspaceHeld = true
         deleteOneCharacter()
@@ -190,28 +398,13 @@ class XiKeyInputMethodService : InputMethodService() {
         refreshSuggestions()
     }
 
-    private fun enterButton(): Button = actionButton("↵", "Eingabe", KeyKind.ACCENT) {
-        clearSuggestions()
-        currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-        currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
-        renderKeyboard()
-    }
-
-    private fun languageLabel(): String = if (languages.current == PredictionLanguage.VORARLBERG_GERMAN) "VBG" else "EN"
-
-    private fun keyButton(key: String): Button {
-        val label = if (shift.isShifted && key == "ß") "ẞ" else if (shift.isShifted) key.uppercase() else key
-        return actionButton(label, "Taste $label") { commitAndRefresh(shift.applyTo(key)); renderKeyboard() }
-    }
-
-    private fun symbolButton(symbol: String): Button = actionButton(symbol, "Zeichen $symbol") { commitAndRefresh(symbol) }
-
+    // ── Suggestions ──────────────────────────────────────────────
     private fun acceptSuggestion(suggestion: String) {
         val prefix = currentComposingWord()
         if (prefix.isNotEmpty()) currentInputConnection?.deleteSurroundingText(prefix.length, 0)
         currentInputConnection?.commitText("$suggestion ", 1)
         clearSuggestions()
-        renderKeyboard()
+        updateKeyboard()
     }
 
     private fun commitAndRefresh(text: String) {
@@ -225,7 +418,7 @@ class XiKeyInputMethodService : InputMethodService() {
         } else {
             emptyList()
         }
-        renderKeyboard()
+        updateKeyboard()
     }
 
     private fun currentComposingWord(): String = ComposingWord.beforeCursor(currentInputConnection?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)?.toString().orEmpty())
@@ -237,12 +430,22 @@ class XiKeyInputMethodService : InputMethodService() {
         return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD || variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
     }
 
+    // ── Helpers ───────────────────────────────────────────────────
+    private fun languageLabel(): String = if (languages.current == PredictionLanguage.VORARLBERG_GERMAN) "VBG" else "EN"
+
+    private fun shiftLabel(): String = when {
+        shift.isCapsLocked -> "⇪"
+        shift.isShifted -> "⇧"
+        else -> "⇩"
+    }
+
     private fun loadBundledWords(assetName: String): List<String> = assets.open(assetName).bufferedReader(Charsets.UTF_8).use { reader ->
         val array = JSONArray(reader.readText())
         List(array.length()) { index -> array.getString(index) }
     }
 
-    private fun actionButton(label: String, description: String, kind: KeyKind = KeyKind.NORMAL, action: (() -> Unit)? = null): Button = Button(this).apply {
+    // ── View factory (called once) ───────────────────────────────
+    private fun makeButton(label: String, description: String, kind: KeyKind): Button = Button(this).apply {
         text = label
         contentDescription = description
         isAllCaps = false
@@ -254,7 +457,19 @@ class XiKeyInputMethodService : InputMethodService() {
         setPadding(0, 0, 0, 0)
         gravity = Gravity.CENTER
         background = roundedBackground(kind.background)
-        setOnClickListener { action?.invoke() }
+        visibility = View.GONE
+    }
+
+    private fun createKeyRowPool(maxKeys: Int): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        for (i in 0 until maxKeys) {
+            val btn = makeButton("", "", KeyKind.NORMAL)
+            addView(btn, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), 1f).apply {
+                setMargins(dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP))
+            })
+        }
+        visibility = View.GONE
     }
 
     private fun keyRow(keys: List<Button>, weights: List<Float> = List(keys.size) { 1f }): LinearLayout = LinearLayout(this).apply {

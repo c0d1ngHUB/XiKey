@@ -5,17 +5,19 @@ data class KeyboardLayout(val rows: List<List<String>>) {
     companion object {
         fun symbols(): KeyboardLayout = KeyboardLayout(
             rows = listOf(
-                listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
-                listOf("@", "#", "€", "%", "&", "-", "+", "(", ")", "/"),
+                listOf("1", "2", "3", "4", "5", "6", "7"),
+                listOf("8", "9", "0", "@", "#", "€", "%"),
+                listOf("&", "-", "+", "(", ")", "/"),
                 listOf("*", "\"", "'", ":", ";", "!", "?"),
             ),
         )
 
         fun secondarySymbols(): KeyboardLayout = KeyboardLayout(
             rows = listOf(
-                listOf("~", "\\", "|", "•", "√", "π", "÷", "×", "§", "Δ"),
-                listOf("£", "¥", "$", "¢", "^", "°", "=", "{", "}", "\\"),
-                listOf("©", "®", "™", "✓", "[", "]", "<", ">", "_"),
+                listOf("~", "\\", "|", "•", "√", "π", "÷"),
+                listOf("×", "§", "Δ", "£", "¥", "$", "¢"),
+                listOf("^", "°", "=", "{", "}", "<", ">"),
+                listOf("©", "®", "™", "✓", "[", "]", "_"),
             ),
         )
 
