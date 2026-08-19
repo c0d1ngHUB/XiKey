@@ -14,6 +14,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.Space
 import org.json.JSONArray
 
@@ -44,6 +45,7 @@ class XiKeyInputMethodService : InputMethodService() {
     private var isBackspaceHeld = false
     private var audioManager: AudioManager? = null
     private var currentImeOptions: Int = 0
+    private var lastComposingWord: String = ""
 
     // ── Colors from resources ─────────────────────────────────────
     private var colKeyboardBg: Int = 0
@@ -52,6 +54,12 @@ class XiKeyInputMethodService : InputMethodService() {
     private var colSpaceBg: Int = 0
     private var colSuggestionBg: Int = 0
     private var colKeyText: Int = 0
+
+    // Cached GradientDrawable per KeyKind (avoids per-keystroke allocation)
+    private var bgNormal: GradientDrawable? = null
+    private var bgAccent: GradientDrawable? = null
+    private var bgSpace: GradientDrawable? = null
+    private var bgSuggestion: GradientDrawable? = null
 
     // ── Cached views ──────────────────────────────────────────────
     private var suggestionBar: LinearLayout? = null
@@ -96,6 +104,11 @@ class XiKeyInputMethodService : InputMethodService() {
         colSpaceBg = getColor(R.color.space_background)
         colSuggestionBg = getColor(R.color.suggestion_background)
         colKeyText = getColor(R.color.key_text)
+        // Pre-create cached GradientDrawables per KeyKind
+        bgNormal = roundedBackgroundRaw(colKeyBg)
+        bgAccent = roundedBackgroundRaw(colKeyAccent)
+        bgSpace = roundedBackgroundRaw(colSpaceBg)
+        bgSuggestion = roundedBackgroundRaw(colSuggestionBg)
         val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
         languages = KeyboardLanguageController(KeyboardLanguagePreference.restore(storedTag))
         suggestions = SuggestionWordLists(
@@ -114,6 +127,7 @@ class XiKeyInputMethodService : InputMethodService() {
         super.onStartInput(attribute, restarting)
         suggestionsAllowed = !isSensitiveInput(attribute)
         currentSuggestions = emptyList()
+        lastComposingWord = ""
         shift.reset()
         currentImeOptions = attribute?.imeOptions ?: 0
     }
@@ -358,7 +372,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.text = label
         btn.contentDescription = "Taste $label"
         btn.textSize = 18f
-        btn.background = roundedBackground(colKeyBg)
+        btn.background = bgNormal!!
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(shift.applyTo(key)); updateKeyboard() }
         btn.setOnLongClickListener { handleLongPress(btn, key) }
     }
@@ -367,7 +381,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.text = symbol
         btn.contentDescription = "Zeichen $symbol"
         btn.textSize = 18f
-        btn.background = roundedBackground(colKeyBg)
+        btn.background = bgNormal!!
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(symbol) }
         btn.setOnLongClickListener(null)
     }
@@ -376,7 +390,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.text = shiftLabel()
         btn.contentDescription = "Umschalttaste; zweimal tippen für Feststelltaste"
         btn.textSize = 14f
-        btn.background = roundedBackground(colKeyAccent)
+        btn.background = bgAccent!!
         btn.setOnClickListener { performKeyFeedback(btn); shift.toggle(); updateKeyboard() }
         btn.setOnLongClickListener(null)
         shiftBtn = btn
@@ -386,12 +400,15 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.text = "⌫"
         btn.contentDescription = "Löschen; gedrückt halten für fortlaufendes Löschen"
         btn.textSize = 14f
-        btn.background = roundedBackground(colKeyAccent)
-        btn.setOnClickListener { performKeyFeedback(btn); deleteOneCharacter() }
+        btn.background = bgAccent!!
+        btn.setOnClickListener(null)
         btn.setOnLongClickListener(null)
         btn.setOnTouchListener { _, event ->
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> startBackspaceRepeat()
+                MotionEvent.ACTION_DOWN -> {
+                    performKeyFeedback(btn)
+                    startBackspaceRepeat()
+                }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> stopBackspaceRepeat()
             }
             true
@@ -403,7 +420,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.text = if (secondary) "1/2" else "=\\<"
         btn.contentDescription = if (secondary) "Häufige Sonderzeichen anzeigen" else "Weitere Sonderzeichen anzeigen"
         btn.textSize = 14f
-        btn.background = roundedBackground(colKeyAccent)
+        btn.background = bgAccent!!
         btn.setOnClickListener { performKeyFeedback(btn); if (secondary) pages.showPrimarySymbols() else pages.showSecondarySymbols(); updateKeyboard() }
         btn.setOnLongClickListener(null)
     }
@@ -439,12 +456,31 @@ class XiKeyInputMethodService : InputMethodService() {
 
     private fun commitAndRefresh(text: String) {
         currentInputConnection?.commitText(text, 1)
+        autoEnableShiftAfterSentenceEnd()
         refreshSuggestions()
     }
 
+    /** Auto-enable shift after sentence-ending punctuation (. ! ?) or at text start. */
+    private fun autoEnableShiftAfterSentenceEnd() {
+        if (shift.isCapsLocked) return
+        val before = currentInputConnection?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)?.toString().orEmpty()
+        val trimmed = before.trimEnd()
+        val shouldShift = trimmed.isEmpty() ||
+            trimmed.endsWith(".") ||
+            trimmed.endsWith("!") ||
+            trimmed.endsWith("?")
+        if (shouldShift && !shift.isShifted) {
+            shift.toggle()
+            updateKeyboard()
+        }
+    }
+
     private fun refreshSuggestions() {
+        val word = currentComposingWord()
+        if (word == lastComposingWord) return  // no change in composing word → skip
+        lastComposingWord = word
         currentSuggestions = if (suggestionsAllowed && pages.current == KeyboardPage.ALPHABETIC) {
-            suggestions.forLanguage(languages.current).suggestionsFor(currentComposingWord())
+            suggestions.forLanguage(languages.current).suggestionsFor(word)
         } else {
             emptyList()
         }
@@ -453,7 +489,7 @@ class XiKeyInputMethodService : InputMethodService() {
 
     private fun currentComposingWord(): String = ComposingWord.beforeCursor(currentInputConnection?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)?.toString().orEmpty())
 
-    private fun clearSuggestions() { currentSuggestions = emptyList() }
+    private fun clearSuggestions() { currentSuggestions = emptyList(); lastComposingWord = currentComposingWord() }
 
     private fun isSensitiveInput(attribute: EditorInfo?): Boolean {
         val variation = (attribute?.inputType ?: 0) and InputType.TYPE_MASK_VARIATION
@@ -475,6 +511,7 @@ class XiKeyInputMethodService : InputMethodService() {
         EditorInfo.IME_ACTION_SEARCH -> "🔍"
         EditorInfo.IME_ACTION_SEND -> "➤"
         EditorInfo.IME_ACTION_NEXT -> "⇥"
+        EditorInfo.IME_ACTION_PREVIOUS -> "⇤"
         EditorInfo.IME_ACTION_DONE -> "✓"
         else -> "↵"
     }
@@ -496,14 +533,36 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun handleLongPress(btn: View, key: String): Boolean {
         val variants = longPressMap[key] ?: return false
         if (variants.isEmpty()) return false
-        // Commit the first variant (most common); future: show popup chooser
-        val variant = variants[0]
-        val toCommit = if (shift.isShifted) variant.uppercase() else variant
-        performKeyFeedback(btn)
-        currentInputConnection?.commitText(toCommit, 1)
-        if (!shift.isCapsLocked) shift.reset()
-        clearSuggestions()
-        updateKeyboard()
+
+        // Single variant → commit directly
+        if (variants.size == 1) {
+            val variant = variants[0]
+            val toCommit = if (shift.isShifted) variant.uppercase() else variant
+            performKeyFeedback(btn)
+            currentInputConnection?.commitText(toCommit, 1)
+            if (!shift.isCapsLocked) shift.reset()
+            clearSuggestions()
+            updateKeyboard()
+            return true
+        }
+
+        // Multiple variants → show popup chooser
+        val popup = PopupMenu(this, btn)
+        variants.forEachIndexed { index, variant ->
+            val displayLabel = if (shift.isShifted) variant.uppercase() else variant
+            popup.menu.add(0, index, index, displayLabel)
+        }
+        popup.setOnMenuItemClickListener { menuItem ->
+            val variant = variants[menuItem.itemId]
+            val toCommit = if (shift.isShifted) variant.uppercase() else variant
+            performKeyFeedback(btn)
+            currentInputConnection?.commitText(toCommit, 1)
+            if (!shift.isCapsLocked) shift.reset()
+            clearSuggestions()
+            updateKeyboard()
+            true
+        }
+        popup.show()
         return true
     }
 
@@ -524,7 +583,13 @@ class XiKeyInputMethodService : InputMethodService() {
         isSingleLine = KeyboardSurfaceMetrics.singleLineLabels
         setPadding(0, 0, 0, 0)
         gravity = Gravity.CENTER
-        background = roundedBackground(kind.background)
+        background = when (kind.background) {
+            colKeyBg -> bgNormal!!
+            colKeyAccent -> bgAccent!!
+            colSpaceBg -> bgSpace!!
+            colSuggestionBg -> bgSuggestion!!
+            else -> roundedBackgroundRaw(kind.background)
+        }
         visibility = View.GONE
     }
 
@@ -547,7 +612,8 @@ class XiKeyInputMethodService : InputMethodService() {
         keys.zip(weights).forEach { (key, weight) -> addView(key, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), weight).apply { setMargins(dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP)) }) }
     }
 
-    private fun roundedBackground(color: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = dp(CORNER_RADIUS_DP).toFloat() }
+    private fun roundedBackgroundRaw(color: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = dp(CORNER_RADIUS_DP).toFloat() }
+
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private data class KeyKind(val background: Int, val isNormal: Boolean = false)
