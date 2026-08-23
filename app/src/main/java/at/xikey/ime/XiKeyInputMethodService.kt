@@ -90,7 +90,7 @@ class XiKeyInputMethodService : InputMethodService() {
         override fun run() {
             if (!isBackspaceHeld) return
             repeat(backspaceRepeater.deletionsDue(System.currentTimeMillis())) { deleteOneCharacter() }
-            backspaceHandler.postDelayed(this, BackspaceRepeatController.REPEAT_INTERVAL_MILLIS)
+            backspaceHandler.postDelayed(this, BackspaceRepeatController.POLL_INTERVAL_MILLIS)
         }
     }
 
@@ -373,7 +373,7 @@ class XiKeyInputMethodService : InputMethodService() {
             bottomLeftBtn.contentDescription = "Buchstaben anzeigen"
         }
         bottomLangBtn.text = languageLabel()
-        bottomLangBtn.contentDescription = "Sprache wechseln"
+        bottomLangBtn.contentDescription = KeyboardAccessibility.language(languages.current)
         val action = ImeActionSpec.from(currentImeOptions)
         bottomEnterBtn.text = action.icon
         bottomEnterBtn.contentDescription = action.contentDescription
@@ -388,6 +388,8 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun configureKeyButton(btn: Button, label: String, key: String) {
         btn.text = label
         btn.contentDescription = "Taste $label"
+        btn.isActivated = false
+        btn.isSelected = false
         btn.textSize = 18f
         btn.background = bgNormal!!
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(shift.applyTo(key)); updateKeyboard() }
@@ -397,6 +399,8 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun configureSymbolButton(btn: Button, symbol: String) {
         btn.text = symbol
         btn.contentDescription = "Zeichen $symbol"
+        btn.isActivated = false
+        btn.isSelected = false
         btn.textSize = 18f
         btn.background = bgNormal!!
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(symbol) }
@@ -405,7 +409,9 @@ class XiKeyInputMethodService : InputMethodService() {
 
     private fun configureShiftButton(btn: Button) {
         btn.text = shiftLabel()
-        btn.contentDescription = "Umschalttaste; zweimal tippen für Feststelltaste"
+        btn.contentDescription = KeyboardAccessibility.shift(shift.state)
+        btn.isActivated = shift.isShifted
+        btn.isSelected = shift.isCapsLocked
         btn.textSize = 14f
         btn.background = bgAccent!!
         btn.setOnClickListener { performKeyFeedback(btn); shift.toggle(); updateKeyboard() }
@@ -416,6 +422,8 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun configureDeleteButton(btn: Button) {
         btn.text = "⌫"
         btn.contentDescription = "Löschen; gedrückt halten für fortlaufendes Löschen"
+        btn.isActivated = false
+        btn.isSelected = false
         btn.textSize = 14f
         btn.background = bgAccent!!
         btn.setOnClickListener(null)
@@ -434,8 +442,12 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     private fun configureSymbolPageButton(btn: Button, secondary: Boolean) {
-        btn.text = if (secondary) "1/2" else "=\\<"
-        btn.contentDescription = if (secondary) "Häufige Sonderzeichen anzeigen" else "Weitere Sonderzeichen anzeigen"
+        val semantics = KeyboardAccessibility.symbolPage(
+            if (secondary) KeyboardPage.SYMBOLS_SECONDARY else KeyboardPage.SYMBOLS,
+        )
+        btn.text = semantics.label
+        btn.contentDescription = semantics.contentDescription
+        btn.isSelected = secondary
         btn.textSize = 14f
         btn.background = bgAccent!!
         btn.setOnClickListener { performKeyFeedback(btn); if (secondary) pages.showPrimarySymbols() else pages.showSecondarySymbols(); updateKeyboard() }
@@ -448,7 +460,7 @@ class XiKeyInputMethodService : InputMethodService() {
         deleteOneCharacter()
         backspaceRepeater.onPress(System.currentTimeMillis())
         backspaceHandler.removeCallbacks(repeatBackspace)
-        backspaceHandler.postDelayed(repeatBackspace, BackspaceRepeatController.REPEAT_INTERVAL_MILLIS)
+        backspaceHandler.postDelayed(repeatBackspace, BackspaceRepeatController.POLL_INTERVAL_MILLIS)
     }
 
     private fun stopBackspaceRepeat() {
@@ -508,10 +520,10 @@ class XiKeyInputMethodService : InputMethodService() {
     // ── Helpers ───────────────────────────────────────────────────
     private fun languageLabel(): String = if (languages.current == PredictionLanguage.VORARLBERG_GERMAN) "VBG" else "EN"
 
-    private fun shiftLabel(): String = when {
-        shift.isCapsLocked -> "⇪"
-        shift.isShifted -> "⇧"
-        else -> "⇩"
+    private fun shiftLabel(): String = when (shift.state) {
+        ShiftState.CAPS_LOCK -> "⇪"
+        ShiftState.AUTO, ShiftState.ONESHOT -> "⇧"
+        ShiftState.OFF -> "⇩"
     }
 
 
