@@ -15,7 +15,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.PopupMenu
+import android.widget.PopupWindow
 import android.widget.Space
 import org.json.JSONArray
 
@@ -48,6 +48,7 @@ class XiKeyInputMethodService : InputMethodService() {
     private var audioManager: AudioManager? = null
     private var currentImeOptions: Int = 0
     private var lastComposingWord: String = ""
+    private var variantPopup: PopupWindow? = null
 
     // ── Colors from resources ─────────────────────────────────────
     private var colKeyboardBg: Int = 0
@@ -111,8 +112,16 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        variantPopup?.dismiss()
+        variantPopup = null
         stopBackspaceRepeat()
         super.onDestroy()
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        variantPopup?.dismiss()
+        variantPopup = null
+        super.onFinishInputView(finishingInput)
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
@@ -536,37 +545,64 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun handleLongPress(btn: View, key: String): Boolean {
         val variants = longPressMap[key] ?: return false
         if (variants.isEmpty()) return false
+        val labels = LongPressVariantPopupModel.labels(variants, shift.isShifted)
 
-        // Single variant → commit directly
-        if (variants.size == 1) {
-            val variant = variants[0]
-            val toCommit = if (shift.isShifted) variant.uppercase() else variant
-            performKeyFeedback(btn)
-            currentInputConnection?.commitText(toCommit, 1)
-            if (!shift.isCapsLocked) shift.reset()
-            clearSuggestions()
-            updateKeyboard()
+        if (labels.size == 1) {
+            commitLongPressVariant(btn, labels.single())
             return true
         }
 
-        // Multiple variants → show popup chooser
-        val popup = PopupMenu(this, btn)
-        variants.forEachIndexed { index, variant ->
-            val displayLabel = if (shift.isShifted) variant.uppercase() else variant
-            popup.menu.add(0, index, index, displayLabel)
+        variantPopup?.dismiss()
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+            background = roundedBackgroundRaw(colKeyboardBg)
         }
-        popup.setOnMenuItemClickListener { menuItem ->
-            val variant = variants[menuItem.itemId]
-            val toCommit = if (shift.isShifted) variant.uppercase() else variant
-            performKeyFeedback(btn)
-            currentInputConnection?.commitText(toCommit, 1)
-            if (!shift.isCapsLocked) shift.reset()
-            clearSuggestions()
-            updateKeyboard()
-            true
+        val popup = PopupWindow(
+            row,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            dp(LONG_PRESS_POPUP_HEIGHT_DP),
+            true,
+        ).apply {
+            elevation = dp(8).toFloat()
+            isOutsideTouchable = true
+            setOnDismissListener { if (variantPopup === this) variantPopup = null }
         }
-        popup.show()
+        labels.forEach { label ->
+            val choice = makeButton(label, "Zeichen $label auswählen", keyKindAccent).apply {
+                visibility = View.VISIBLE
+                setOnClickListener {
+                    popup.dismiss()
+                    commitLongPressVariant(btn, label)
+                }
+            }
+            row.addView(choice, LinearLayout.LayoutParams(dp(LONG_PRESS_CHOICE_WIDTH_DP), dp(LONG_PRESS_POPUP_HEIGHT_DP)))
+        }
+        row.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val anchorLocation = IntArray(2)
+        btn.getLocationOnScreen(anchorLocation)
+        val popupWidth = row.measuredWidth
+        val screenWidth = resources.displayMetrics.widthPixels
+        val desiredLeft = anchorLocation[0] + (btn.width - popupWidth) / 2
+        val clampedLeft = desiredLeft.coerceIn(0, (screenWidth - popupWidth).coerceAtLeast(0))
+        val horizontalOffset = clampedLeft - anchorLocation[0]
+        popup.showAsDropDown(
+            btn,
+            horizontalOffset,
+            -btn.height - dp(LONG_PRESS_POPUP_HEIGHT_DP),
+            Gravity.START,
+        )
+        variantPopup = popup
         return true
+    }
+
+    private fun commitLongPressVariant(source: View, text: String) {
+        performKeyFeedback(source)
+        currentInputConnection?.commitText(text, 1)
+        if (!shift.isCapsLocked) shift.reset()
+        clearSuggestions()
+        updateKeyboard()
     }
 
     private fun loadBundledWords(assetName: String): List<String> = assets.open(assetName).bufferedReader(Charsets.UTF_8).use { reader ->
@@ -632,6 +668,8 @@ class XiKeyInputMethodService : InputMethodService() {
         const val KEY_GAP_DP = 4
         const val CORNER_RADIUS_DP = 9
         const val SUGGESTION_HEIGHT_DP = 38
+        const val LONG_PRESS_POPUP_HEIGHT_DP = 56
+        const val LONG_PRESS_CHOICE_WIDTH_DP = 48
         const val MAX_CURSOR_LOOKBACK = 64
     }
 }
