@@ -487,7 +487,7 @@ class XiKeyInputMethodService : InputMethodService() {
         if (word == lastComposingWord) return  // no change in composing word → skip
         lastComposingWord = word
         currentSuggestions = if (suggestionsAllowed && pages.current == KeyboardPage.ALPHABETIC) {
-            suggestions.forLanguage(languages.current).suggestionsFor(word)
+            suggestions.suggestionsFor(languages.current, word)
         } else {
             emptyList()
         }
