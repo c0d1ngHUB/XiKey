@@ -1,6 +1,7 @@
 package at.xikey.ime
 
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Handler
@@ -14,12 +15,13 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.PopupMenu
+import android.widget.PopupWindow
 import android.widget.Space
 import org.json.JSONArray
 
 internal object KeyboardSurfaceMetrics {
-    const val keyHeightDp = 46
+    const val keyHeightDp = 48
+    const val keyVisualGapDp = 2
     const val navigationSpacerDp = 44
     const val includeFontPadding = true
     const val singleLineLabels = true
@@ -46,6 +48,7 @@ class XiKeyInputMethodService : InputMethodService() {
     private var audioManager: AudioManager? = null
     private var currentImeOptions: Int = 0
     private var lastComposingWord: String = ""
+    private var variantPopup: PopupWindow? = null
 
     // ── Colors from resources ─────────────────────────────────────
     private var colKeyboardBg: Int = 0
@@ -55,11 +58,6 @@ class XiKeyInputMethodService : InputMethodService() {
     private var colSuggestionBg: Int = 0
     private var colKeyText: Int = 0
 
-    // Cached GradientDrawable per KeyKind (avoids per-keystroke allocation)
-    private var bgNormal: GradientDrawable? = null
-    private var bgAccent: GradientDrawable? = null
-    private var bgSpace: GradientDrawable? = null
-    private var bgSuggestion: GradientDrawable? = null
 
     // ── Cached views ──────────────────────────────────────────────
     private var suggestionBar: LinearLayout? = null
@@ -90,7 +88,7 @@ class XiKeyInputMethodService : InputMethodService() {
         override fun run() {
             if (!isBackspaceHeld) return
             repeat(backspaceRepeater.deletionsDue(System.currentTimeMillis())) { deleteOneCharacter() }
-            backspaceHandler.postDelayed(this, BackspaceRepeatController.REPEAT_INTERVAL_MILLIS)
+            backspaceHandler.postDelayed(this, BackspaceRepeatController.POLL_INTERVAL_MILLIS)
         }
     }
 
@@ -104,11 +102,6 @@ class XiKeyInputMethodService : InputMethodService() {
         colSpaceBg = getColor(R.color.space_background)
         colSuggestionBg = getColor(R.color.suggestion_background)
         colKeyText = getColor(R.color.key_text)
-        // Pre-create cached GradientDrawables per KeyKind
-        bgNormal = roundedBackgroundRaw(colKeyBg)
-        bgAccent = roundedBackgroundRaw(colKeyAccent)
-        bgSpace = roundedBackgroundRaw(colSpaceBg)
-        bgSuggestion = roundedBackgroundRaw(colSuggestionBg)
         val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
         languages = KeyboardLanguageController(KeyboardLanguagePreference.restore(storedTag))
         suggestions = SuggestionWordLists(
@@ -119,8 +112,16 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        variantPopup?.dismiss()
+        variantPopup = null
         stopBackspaceRepeat()
         super.onDestroy()
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        variantPopup?.dismiss()
+        variantPopup = null
+        super.onFinishInputView(finishingInput)
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
@@ -213,8 +214,14 @@ class XiKeyInputMethodService : InputMethodService() {
         bottomEnterBtn.setOnClickListener {
             performKeyFeedback(bottomEnterBtn)
             clearSuggestions()
-            currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-            currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+            val action = ImeActionSpec.from(currentImeOptions)
+            if (action.editorAction != null) {
+                currentInputConnection?.performEditorAction(action.editorAction)
+                if (action.hideKeyboardAfterAction) requestHideSelf(0)
+            } else {
+                currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+            }
             updateKeyboard()
         }
         bottomLeftBtn.setOnClickListener {
@@ -367,8 +374,10 @@ class XiKeyInputMethodService : InputMethodService() {
             bottomLeftBtn.contentDescription = "Buchstaben anzeigen"
         }
         bottomLangBtn.text = languageLabel()
-        bottomLangBtn.contentDescription = "Sprache wechseln"
-        bottomEnterBtn.text = enterIcon()
+        bottomLangBtn.contentDescription = KeyboardAccessibility.language(languages.current)
+        val action = ImeActionSpec.from(currentImeOptions)
+        bottomEnterBtn.text = action.icon
+        bottomEnterBtn.contentDescription = action.contentDescription
     }
 
     // ── Button configuration (no allocation) ───────────────────────
@@ -380,8 +389,11 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun configureKeyButton(btn: Button, label: String, key: String) {
         btn.text = label
         btn.contentDescription = "Taste $label"
+        btn.isActivated = false
+        btn.isSelected = false
         btn.textSize = 18f
-        btn.background = bgNormal!!
+        btn.background.setTint(colKeyBg)
+        btn.setOnTouchListener(null)
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(shift.applyTo(key)); updateKeyboard() }
         btn.setOnLongClickListener { handleLongPress(btn, key) }
     }
@@ -389,17 +401,21 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun configureSymbolButton(btn: Button, symbol: String) {
         btn.text = symbol
         btn.contentDescription = "Zeichen $symbol"
+        btn.isActivated = false
+        btn.isSelected = false
         btn.textSize = 18f
-        btn.background = bgNormal!!
+        btn.background.setTint(colKeyBg)
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(symbol) }
         btn.setOnLongClickListener(null)
     }
 
     private fun configureShiftButton(btn: Button) {
         btn.text = shiftLabel()
-        btn.contentDescription = "Umschalttaste; zweimal tippen für Feststelltaste"
+        btn.contentDescription = KeyboardAccessibility.shift(shift.state)
+        btn.isActivated = shift.isShifted
+        btn.isSelected = shift.isCapsLocked
         btn.textSize = 14f
-        btn.background = bgAccent!!
+        btn.background.setTint(colKeyAccent)
         btn.setOnClickListener { performKeyFeedback(btn); shift.toggle(); updateKeyboard() }
         btn.setOnLongClickListener(null)
         shiftBtn = btn
@@ -408,8 +424,10 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun configureDeleteButton(btn: Button) {
         btn.text = "⌫"
         btn.contentDescription = "Löschen; gedrückt halten für fortlaufendes Löschen"
+        btn.isActivated = false
+        btn.isSelected = false
         btn.textSize = 14f
-        btn.background = bgAccent!!
+        btn.background.setTint(colKeyAccent)
         btn.setOnClickListener(null)
         btn.setOnLongClickListener(null)
         btn.setOnTouchListener { _, event ->
@@ -426,10 +444,14 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     private fun configureSymbolPageButton(btn: Button, secondary: Boolean) {
-        btn.text = if (secondary) "1/2" else "=\\<"
-        btn.contentDescription = if (secondary) "Häufige Sonderzeichen anzeigen" else "Weitere Sonderzeichen anzeigen"
+        val semantics = KeyboardAccessibility.symbolPage(
+            if (secondary) KeyboardPage.SYMBOLS_SECONDARY else KeyboardPage.SYMBOLS,
+        )
+        btn.text = semantics.label
+        btn.contentDescription = semantics.contentDescription
+        btn.isSelected = secondary
         btn.textSize = 14f
-        btn.background = bgAccent!!
+        btn.background.setTint(colKeyAccent)
         btn.setOnClickListener { performKeyFeedback(btn); if (secondary) pages.showPrimarySymbols() else pages.showSecondarySymbols(); updateKeyboard() }
         btn.setOnLongClickListener(null)
     }
@@ -440,7 +462,7 @@ class XiKeyInputMethodService : InputMethodService() {
         deleteOneCharacter()
         backspaceRepeater.onPress(System.currentTimeMillis())
         backspaceHandler.removeCallbacks(repeatBackspace)
-        backspaceHandler.postDelayed(repeatBackspace, BackspaceRepeatController.REPEAT_INTERVAL_MILLIS)
+        backspaceHandler.postDelayed(repeatBackspace, BackspaceRepeatController.POLL_INTERVAL_MILLIS)
     }
 
     private fun stopBackspaceRepeat() {
@@ -479,7 +501,7 @@ class XiKeyInputMethodService : InputMethodService() {
         if (word == lastComposingWord) return  // no change in composing word → skip
         lastComposingWord = word
         currentSuggestions = if (suggestionsAllowed && pages.current == KeyboardPage.ALPHABETIC) {
-            suggestions.forLanguage(languages.current).suggestionsFor(word)
+            suggestions.suggestionsFor(languages.current, word)
         } else {
             emptyList()
         }
@@ -500,22 +522,12 @@ class XiKeyInputMethodService : InputMethodService() {
     // ── Helpers ───────────────────────────────────────────────────
     private fun languageLabel(): String = if (languages.current == PredictionLanguage.VORARLBERG_GERMAN) "VBG" else "EN"
 
-    private fun shiftLabel(): String = when {
-        shift.isCapsLocked -> "⇪"
-        shift.isShifted -> "⇧"
-        else -> "⇩"
+    private fun shiftLabel(): String = when (shift.state) {
+        ShiftState.CAPS_LOCK -> "⇪"
+        ShiftState.AUTO, ShiftState.ONESHOT -> "⇧"
+        ShiftState.OFF -> "⇩"
     }
 
-    /** P1-4: Context-sensitive Enter key icon based on IME options. */
-    private fun enterIcon(): String = when (currentImeOptions and EditorInfo.IME_MASK_ACTION) {
-        EditorInfo.IME_ACTION_GO -> "→"
-        EditorInfo.IME_ACTION_SEARCH -> "🔍"
-        EditorInfo.IME_ACTION_SEND -> "➤"
-        EditorInfo.IME_ACTION_NEXT -> "⇥"
-        EditorInfo.IME_ACTION_PREVIOUS -> "⇤"
-        EditorInfo.IME_ACTION_DONE -> "✓"
-        else -> "↵"
-    }
 
     /** P1-5: Long-press character variants (like Gboard accent popups). */
     private val longPressMap = mapOf(
@@ -534,37 +546,64 @@ class XiKeyInputMethodService : InputMethodService() {
     private fun handleLongPress(btn: View, key: String): Boolean {
         val variants = longPressMap[key] ?: return false
         if (variants.isEmpty()) return false
+        val labels = LongPressVariantPopupModel.labels(variants, shift.isShifted)
 
-        // Single variant → commit directly
-        if (variants.size == 1) {
-            val variant = variants[0]
-            val toCommit = if (shift.isShifted) variant.uppercase() else variant
-            performKeyFeedback(btn)
-            currentInputConnection?.commitText(toCommit, 1)
-            if (!shift.isCapsLocked) shift.reset()
-            clearSuggestions()
-            updateKeyboard()
+        if (labels.size == 1) {
+            commitLongPressVariant(btn, labels.single())
             return true
         }
 
-        // Multiple variants → show popup chooser
-        val popup = PopupMenu(this, btn)
-        variants.forEachIndexed { index, variant ->
-            val displayLabel = if (shift.isShifted) variant.uppercase() else variant
-            popup.menu.add(0, index, index, displayLabel)
+        variantPopup?.dismiss()
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+            background = roundedBackgroundRaw(colKeyboardBg)
         }
-        popup.setOnMenuItemClickListener { menuItem ->
-            val variant = variants[menuItem.itemId]
-            val toCommit = if (shift.isShifted) variant.uppercase() else variant
-            performKeyFeedback(btn)
-            currentInputConnection?.commitText(toCommit, 1)
-            if (!shift.isCapsLocked) shift.reset()
-            clearSuggestions()
-            updateKeyboard()
-            true
+        val popup = PopupWindow(
+            row,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            dp(LONG_PRESS_POPUP_HEIGHT_DP),
+            false,
+        ).apply {
+            elevation = dp(8).toFloat()
+            isOutsideTouchable = false
+            setOnDismissListener { if (variantPopup === this) variantPopup = null }
         }
-        popup.show()
+        labels.forEach { label ->
+            val choice = makeButton(label, "Zeichen $label auswählen", keyKindAccent).apply {
+                visibility = View.VISIBLE
+                setOnClickListener {
+                    popup.dismiss()
+                    commitLongPressVariant(btn, label)
+                }
+            }
+            row.addView(choice, LinearLayout.LayoutParams(dp(LONG_PRESS_CHOICE_WIDTH_DP), dp(LONG_PRESS_POPUP_HEIGHT_DP)))
+        }
+        row.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val anchorLocation = IntArray(2)
+        btn.getLocationOnScreen(anchorLocation)
+        val popupWidth = row.measuredWidth
+        val screenWidth = resources.displayMetrics.widthPixels
+        val desiredLeft = anchorLocation[0] + (btn.width - popupWidth) / 2
+        val clampedLeft = desiredLeft.coerceIn(0, (screenWidth - popupWidth).coerceAtLeast(0))
+        val horizontalOffset = clampedLeft - anchorLocation[0]
+        popup.showAsDropDown(
+            btn,
+            horizontalOffset,
+            -btn.height - dp(LONG_PRESS_POPUP_HEIGHT_DP),
+            Gravity.START,
+        )
+        variantPopup = popup
         return true
+    }
+
+    private fun commitLongPressVariant(source: View, text: String) {
+        performKeyFeedback(source)
+        currentInputConnection?.commitText(text, 1)
+        if (!shift.isCapsLocked) shift.reset()
+        clearSuggestions()
+        updateKeyboard()
     }
 
     private fun loadBundledWords(assetName: String): List<String> = assets.open(assetName).bufferedReader(Charsets.UTF_8).use { reader ->
@@ -584,13 +623,10 @@ class XiKeyInputMethodService : InputMethodService() {
         isSingleLine = KeyboardSurfaceMetrics.singleLineLabels
         setPadding(0, 0, 0, 0)
         gravity = Gravity.CENTER
-        background = when (kind.background) {
-            colKeyBg -> bgNormal!!
-            colKeyAccent -> bgAccent!!
-            colSpaceBg -> bgSpace!!
-            colSuggestionBg -> bgSuggestion!!
-            else -> roundedBackgroundRaw(kind.background)
-        }
+        background = InsetDrawable(
+            roundedBackgroundRaw(kind.background),
+            dp(KeyboardSurfaceMetrics.keyVisualGapDp),
+        )
         visibility = View.GONE
     }
 
@@ -602,9 +638,7 @@ class XiKeyInputMethodService : InputMethodService() {
         gravity = Gravity.CENTER
         for (i in 0 until maxKeys) {
             val btn = makeButton("", "", keyKindNormal)
-            addView(btn, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), 1f).apply {
-                setMargins(dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP))
-            })
+            addView(btn, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), 1f))
         }
         visibility = View.GONE
     }
@@ -613,7 +647,9 @@ class XiKeyInputMethodService : InputMethodService() {
         require(keys.size == weights.size)
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
-        keys.zip(weights).forEach { (key, weight) -> addView(key, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), weight).apply { setMargins(dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP)) }) }
+        keys.zip(weights).forEach { (key, weight) ->
+            addView(key, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), weight))
+        }
     }
 
     private fun roundedBackgroundRaw(color: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = dp(CORNER_RADIUS_DP).toFloat() }
@@ -633,6 +669,8 @@ class XiKeyInputMethodService : InputMethodService() {
         const val KEY_GAP_DP = 4
         const val CORNER_RADIUS_DP = 9
         const val SUGGESTION_HEIGHT_DP = 38
+        const val LONG_PRESS_POPUP_HEIGHT_DP = 56
+        const val LONG_PRESS_CHOICE_WIDTH_DP = 48
         const val MAX_CURSOR_LOOKBACK = 64
     }
 }

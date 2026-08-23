@@ -108,6 +108,20 @@ class KeyboardShiftControllerTest {
     }
 
     @Test
+    fun `two taps from automatic shift activate caps-lock`() {
+        var clock = 0L
+        val shift = KeyboardShiftController(nowProvider = { clock })
+        shift.autoEnableForContext("")
+
+        shift.toggle()
+        clock = 150
+        shift.toggle()
+
+        assertTrue(shift.isCapsLocked)
+        assertEquals(ShiftState.CAPS_LOCK, shift.state)
+    }
+
+    @Test
     fun `caps-lock uppercases eszett`() {
         var clock = 0L
         val shift = KeyboardShiftController(nowProvider = { clock })

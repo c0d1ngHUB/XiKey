@@ -51,6 +51,40 @@ printf 'sdk.dir=/PFAD/ZUM/android-sdk\n' > local.properties
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 ```
 
+### Automatisierte IME-Tests auf `xikey_api35`
+
+Der Debug-Build enthält eine eigene `ImeTestHarnessActivity` mit Feldern für `DONE`, `SEARCH`, `SEND`, `GO`, `NEXT`, `PREVIOUS`, Mehrzeilentext, Passwort, Auto-Shift/Caps-Lock, VoraLex sowie Long-Press/Backspace. Die Activity wird ausschließlich im Debug-Source-Set gebaut und ist nicht Bestandteil der Release-App.
+
+```bash
+# Vollständiger Lauf: Build, Installation, XiKey-Auswahl, Tests und Beweisartefakte
+scripts/run-emulator-tests.sh
+
+# Reproduzierbarer Lauf ab einem leeren AVD, optional ohne Fenster
+scripts/run-emulator-tests.sh --reset --headless
+
+# Emulator-Lebenszyklus und Anzeigeprofile
+scripts/xikey-emulator.sh status
+scripts/xikey-emulator.sh profile phone       # 720×1600, 320 dpi
+scripts/xikey-emulator.sh profile small
+scripts/xikey-emulator.sh profile landscape
+scripts/xikey-emulator.sh profile tablet
+scripts/xikey-emulator.sh profile reset
+scripts/xikey-emulator.sh snapshot-save clean-xikey
+scripts/xikey-emulator.sh snapshot-load clean-xikey
+scripts/xikey-emulator.sh screenshot
+scripts/xikey-emulator.sh record 15
+```
+
+Alle ADB-Befehle der Skripte adressieren explizit `emulator-5554`. Ein gleichzeitig angeschlossenes physisches Gerät wird nicht verändert. Der Test-Runner stellt nach dem Lauf standardmäßig die zuvor ausgewählte IME wieder her; `--keep-ime` lässt XiKey ausgewählt.
+
+Die Artefakte liegen unter `build/emulator-artifacts/<Zeitstempel>/`:
+
+- `instrumentation.txt`
+- `screenshot.png`
+- `window.xml`
+- `logcat.txt`
+- `device-state.txt`
+
 Ausgaben:
 
 ```text
