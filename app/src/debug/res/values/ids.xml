@@ -1,0 +1,14 @@
+<resources>
+    <item name="action_status" type="id" />
+    <item name="field_done" type="id" />
+    <item name="field_search" type="id" />
+    <item name="field_send" type="id" />
+    <item name="field_go" type="id" />
+    <item name="field_next" type="id" />
+    <item name="field_previous" type="id" />
+    <item name="field_multiline" type="id" />
+    <item name="field_password" type="id" />
+    <item name="field_auto_shift" type="id" />
+    <item name="field_voralex" type="id" />
+    <item name="field_gestures" type="id" />
+</resources>
