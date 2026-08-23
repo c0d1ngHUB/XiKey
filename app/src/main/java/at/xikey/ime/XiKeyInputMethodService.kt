@@ -181,12 +181,12 @@ class XiKeyInputMethodService : InputMethodService() {
         root.addView(contentArea)
 
         // Bottom bar (persistent)
-        bottomLeftBtn = makeButton("", "", keyKindAccent)
-        bottomLangBtn = makeButton("", "", keyKindAccent)
-        bottomCommaBtn = makeButton(",", "Komma", keyKindNormal)
-        bottomSpaceBtn = makeButton("␣", "Leertaste", keyKindSpace)
-        bottomPeriodBtn = makeButton(".", "Punkt", keyKindNormal)
-        bottomEnterBtn = makeButton("↵", "Eingabe", keyKindAccent)
+        bottomLeftBtn = makeBottomButton("", "", keyKindAccent)
+        bottomLangBtn = makeBottomButton("", "", keyKindAccent)
+        bottomCommaBtn = makeBottomButton(",", "Komma", keyKindNormal)
+        bottomSpaceBtn = makeBottomButton("␣", "Leertaste", keyKindSpace)
+        bottomPeriodBtn = makeBottomButton(".", "Punkt", keyKindNormal)
+        bottomEnterBtn = makeBottomButton("↵", "Eingabe", keyKindAccent)
         bottomBar = keyRow(
             listOf(bottomLeftBtn, bottomLangBtn, bottomCommaBtn, bottomSpaceBtn, bottomPeriodBtn, bottomEnterBtn),
             listOf(1.25f, 1.25f, 0.9f, 3.2f, 0.9f, 1.25f),
@@ -593,6 +593,9 @@ class XiKeyInputMethodService : InputMethodService() {
         }
         visibility = View.GONE
     }
+
+    private fun makeBottomButton(label: String, description: String, kind: KeyKind): Button =
+        makeButton(label, description, kind).apply { visibility = View.VISIBLE }
 
     private fun createKeyRowPool(maxKeys: Int): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
