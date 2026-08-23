@@ -1,6 +1,7 @@
 package at.xikey.ime
 
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Handler
@@ -19,7 +20,8 @@ import android.widget.Space
 import org.json.JSONArray
 
 internal object KeyboardSurfaceMetrics {
-    const val keyHeightDp = 46
+    const val keyHeightDp = 48
+    const val keyVisualGapDp = 2
     const val navigationSpacerDp = 44
     const val includeFontPadding = true
     const val singleLineLabels = true
@@ -55,11 +57,6 @@ class XiKeyInputMethodService : InputMethodService() {
     private var colSuggestionBg: Int = 0
     private var colKeyText: Int = 0
 
-    // Cached GradientDrawable per KeyKind (avoids per-keystroke allocation)
-    private var bgNormal: GradientDrawable? = null
-    private var bgAccent: GradientDrawable? = null
-    private var bgSpace: GradientDrawable? = null
-    private var bgSuggestion: GradientDrawable? = null
 
     // ── Cached views ──────────────────────────────────────────────
     private var suggestionBar: LinearLayout? = null
@@ -104,11 +101,6 @@ class XiKeyInputMethodService : InputMethodService() {
         colSpaceBg = getColor(R.color.space_background)
         colSuggestionBg = getColor(R.color.suggestion_background)
         colKeyText = getColor(R.color.key_text)
-        // Pre-create cached GradientDrawables per KeyKind
-        bgNormal = roundedBackgroundRaw(colKeyBg)
-        bgAccent = roundedBackgroundRaw(colKeyAccent)
-        bgSpace = roundedBackgroundRaw(colSpaceBg)
-        bgSuggestion = roundedBackgroundRaw(colSuggestionBg)
         val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
         languages = KeyboardLanguageController(KeyboardLanguagePreference.restore(storedTag))
         suggestions = SuggestionWordLists(
@@ -391,7 +383,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.isActivated = false
         btn.isSelected = false
         btn.textSize = 18f
-        btn.background = bgNormal!!
+        btn.background.setTint(colKeyBg)
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(shift.applyTo(key)); updateKeyboard() }
         btn.setOnLongClickListener { handleLongPress(btn, key) }
     }
@@ -402,7 +394,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.isActivated = false
         btn.isSelected = false
         btn.textSize = 18f
-        btn.background = bgNormal!!
+        btn.background.setTint(colKeyBg)
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(symbol) }
         btn.setOnLongClickListener(null)
     }
@@ -413,7 +405,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.isActivated = shift.isShifted
         btn.isSelected = shift.isCapsLocked
         btn.textSize = 14f
-        btn.background = bgAccent!!
+        btn.background.setTint(colKeyAccent)
         btn.setOnClickListener { performKeyFeedback(btn); shift.toggle(); updateKeyboard() }
         btn.setOnLongClickListener(null)
         shiftBtn = btn
@@ -425,7 +417,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.isActivated = false
         btn.isSelected = false
         btn.textSize = 14f
-        btn.background = bgAccent!!
+        btn.background.setTint(colKeyAccent)
         btn.setOnClickListener(null)
         btn.setOnLongClickListener(null)
         btn.setOnTouchListener { _, event ->
@@ -449,7 +441,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.contentDescription = semantics.contentDescription
         btn.isSelected = secondary
         btn.textSize = 14f
-        btn.background = bgAccent!!
+        btn.background.setTint(colKeyAccent)
         btn.setOnClickListener { performKeyFeedback(btn); if (secondary) pages.showPrimarySymbols() else pages.showSecondarySymbols(); updateKeyboard() }
         btn.setOnLongClickListener(null)
     }
@@ -594,13 +586,10 @@ class XiKeyInputMethodService : InputMethodService() {
         isSingleLine = KeyboardSurfaceMetrics.singleLineLabels
         setPadding(0, 0, 0, 0)
         gravity = Gravity.CENTER
-        background = when (kind.background) {
-            colKeyBg -> bgNormal!!
-            colKeyAccent -> bgAccent!!
-            colSpaceBg -> bgSpace!!
-            colSuggestionBg -> bgSuggestion!!
-            else -> roundedBackgroundRaw(kind.background)
-        }
+        background = InsetDrawable(
+            roundedBackgroundRaw(kind.background),
+            dp(KeyboardSurfaceMetrics.keyVisualGapDp),
+        )
         visibility = View.GONE
     }
 
@@ -612,9 +601,7 @@ class XiKeyInputMethodService : InputMethodService() {
         gravity = Gravity.CENTER
         for (i in 0 until maxKeys) {
             val btn = makeButton("", "", keyKindNormal)
-            addView(btn, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), 1f).apply {
-                setMargins(dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP))
-            })
+            addView(btn, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), 1f))
         }
         visibility = View.GONE
     }
@@ -623,7 +610,9 @@ class XiKeyInputMethodService : InputMethodService() {
         require(keys.size == weights.size)
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
-        keys.zip(weights).forEach { (key, weight) -> addView(key, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), weight).apply { setMargins(dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP), dp(KEY_GAP_DP)) }) }
+        keys.zip(weights).forEach { (key, weight) ->
+            addView(key, LinearLayout.LayoutParams(0, dp(KeyboardSurfaceMetrics.keyHeightDp), weight))
+        }
     }
 
     private fun roundedBackgroundRaw(color: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = dp(CORNER_RADIUS_DP).toFloat() }

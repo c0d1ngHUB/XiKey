@@ -27,8 +27,13 @@ class KeyboardLayoutTest {
     }
 
     @Test
-    fun `key height leaves room for uncropped glyphs on the physical Redmi`() {
-        assertEquals(46, KeyboardSurfaceMetrics.keyHeightDp)
+    fun `keyboard keys reach the recommended minimum height`() {
+        assertEquals(48, KeyboardSurfaceMetrics.keyHeightDp)
+    }
+
+    @Test
+    fun `visual gaps do not shrink the clickable key cell`() {
+        assertEquals(2, KeyboardSurfaceMetrics.keyVisualGapDp)
     }
 
     @Test
