@@ -393,6 +393,7 @@ class XiKeyInputMethodService : InputMethodService() {
         btn.isSelected = false
         btn.textSize = 18f
         btn.background.setTint(colKeyBg)
+        btn.setOnTouchListener(null)
         btn.setOnClickListener { performKeyFeedback(btn); commitAndRefresh(shift.applyTo(key)); updateKeyboard() }
         btn.setOnLongClickListener { handleLongPress(btn, key) }
     }
