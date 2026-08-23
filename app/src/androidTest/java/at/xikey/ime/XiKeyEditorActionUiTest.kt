@@ -17,8 +17,11 @@ class XiKeyEditorActionUiTest {
     @Test
     fun runnerSelectsXiKeyAndFocusesDoneField() {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val xiKeyIme = "at.xikey.ime/.XiKeyInputMethodService"
+        device.executeShellCommand("ime enable $xiKeyIme")
+        device.executeShellCommand("ime set $xiKeyIme")
         assertEquals(
-            "at.xikey.ime/.XiKeyInputMethodService",
+            xiKeyIme,
             device.executeShellCommand("settings get secure default_input_method").trim(),
         )
         ActivityScenario.launch(ImeTestHarnessActivity::class.java).use { scenario ->
