@@ -130,6 +130,15 @@ class XiKeyInputMethodService : InputMethodService() {
         lastComposingWord = ""
         shift.reset()
         currentImeOptions = attribute?.imeOptions ?: 0
+        currentInputConnection
+            ?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)
+            ?.toString()
+            ?.let(shift::autoEnableForContext)
+    }
+
+    override fun onStartInputView(attribute: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(attribute, restarting)
+        if (keyboard != null) updateKeyboard()
     }
 
     override fun onUpdateSelection(
@@ -462,17 +471,7 @@ class XiKeyInputMethodService : InputMethodService() {
 
     /** Auto-enable shift after sentence-ending punctuation (. ! ?) or at text start. */
     private fun autoEnableShiftAfterSentenceEnd() {
-        if (shift.isCapsLocked) return
-        val before = currentInputConnection?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)?.toString().orEmpty()
-        val trimmed = before.trimEnd()
-        val shouldShift = trimmed.isEmpty() ||
-            trimmed.endsWith(".") ||
-            trimmed.endsWith("!") ||
-            trimmed.endsWith("?")
-        if (shouldShift && !shift.isShifted) {
-            shift.toggle()
-            updateKeyboard()
-        }
+        if (shift.autoEnableForContext(textBeforeCursor())) updateKeyboard()
     }
 
     private fun refreshSuggestions() {
@@ -487,7 +486,9 @@ class XiKeyInputMethodService : InputMethodService() {
         updateKeyboard()
     }
 
-    private fun currentComposingWord(): String = ComposingWord.beforeCursor(currentInputConnection?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)?.toString().orEmpty())
+    private fun textBeforeCursor(): String = currentInputConnection?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)?.toString().orEmpty()
+
+    private fun currentComposingWord(): String = ComposingWord.beforeCursor(textBeforeCursor())
 
     private fun clearSuggestions() { currentSuggestions = emptyList(); lastComposingWord = currentComposingWord() }
 
