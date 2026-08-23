@@ -119,4 +119,33 @@ class KeyboardShiftControllerTest {
         assertEquals("ẞ", shift.applyTo("ß"))
         assertTrue(shift.isShifted)  // still locked
     }
+
+    @Test
+    fun `text start automatically enables shift`() {
+        val shift = KeyboardShiftController()
+
+        shift.autoEnableForContext("")
+
+        assertTrue(shift.isShifted)
+    }
+
+    @Test
+    fun `sentence-ending punctuation automatically enables shift`() {
+        listOf("Hello.", "Hello!", "Hello?", "Hello. ").forEach { context ->
+            val shift = KeyboardShiftController()
+
+            shift.autoEnableForContext(context)
+
+            assertTrue("Expected shift for context: $context", shift.isShifted)
+        }
+    }
+
+    @Test
+    fun `ordinary text does not automatically enable shift`() {
+        val shift = KeyboardShiftController()
+
+        shift.autoEnableForContext("Hello")
+
+        assertFalse(shift.isShifted)
+    }
 }

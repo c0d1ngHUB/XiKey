@@ -14,15 +14,45 @@ class DialectSuggestionEngine(words: Collection<String>) {
         .sortedWith(compareBy<Entry> { it.lookup }.thenBy { it.word })
         .toList()
 
+    private val lookupKeys: List<String> = entries.map(Entry::lookup)
+
     fun suggestionsFor(prefix: String, limit: Int = DEFAULT_LIMIT): List<String> {
         require(limit > 0) { "limit must be positive" }
         val query = normalized(prefix)
         if (query.isEmpty()) return emptyList()
-        return entries.asSequence()
+
+        val startIdx = findFirstPrefixIndex(query)
+        if (startIdx < 0) return emptyList()
+
+        return entries.subList(startIdx, entries.size)
+            .asSequence()
             .filter { it.lookup.startsWith(query) }
             .map(Entry::word)
             .take(limit)
             .toList()
+    }
+
+    /**
+     * Binary search for the first entry whose lookup key starts with [query].
+     * Returns -1 if no match exists.
+     */
+    private fun findFirstPrefixIndex(query: String): Int {
+        var lo = 0
+        var hi = lookupKeys.size - 1
+        var result = -1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            val key = lookupKeys[mid]
+            if (key.startsWith(query)) {
+                result = mid
+                hi = mid - 1  // look further left for an earlier match
+            } else if (key < query) {
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        return result
     }
 
     private data class Entry(val word: String, val lookup: String)

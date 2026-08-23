@@ -34,6 +34,18 @@ class KeyboardShiftController(
         isCapsLocked = false
     }
 
+    fun autoEnableForContext(textBeforeCursor: String): Boolean {
+        if (isCapsLocked || isShifted) return false
+        val trimmed = textBeforeCursor.trimEnd()
+        val shouldEnable = trimmed.isEmpty() ||
+            trimmed.endsWith(".") ||
+            trimmed.endsWith("!") ||
+            trimmed.endsWith("?")
+        if (!shouldEnable) return false
+        isShifted = true
+        return true
+    }
+
     fun applyTo(key: String): String {
         val output = if (isShifted && key == "ß") "ẞ" else if (isShifted) key.uppercase() else key
         if (!isCapsLocked) isShifted = false
