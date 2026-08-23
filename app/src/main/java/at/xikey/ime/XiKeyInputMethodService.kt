@@ -213,8 +213,14 @@ class XiKeyInputMethodService : InputMethodService() {
         bottomEnterBtn.setOnClickListener {
             performKeyFeedback(bottomEnterBtn)
             clearSuggestions()
-            currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-            currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+            val action = ImeActionSpec.from(currentImeOptions)
+            if (action.editorAction != null) {
+                currentInputConnection?.performEditorAction(action.editorAction)
+                if (action.hideKeyboardAfterAction) requestHideSelf(0)
+            } else {
+                currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+            }
             updateKeyboard()
         }
         bottomLeftBtn.setOnClickListener {
@@ -368,7 +374,9 @@ class XiKeyInputMethodService : InputMethodService() {
         }
         bottomLangBtn.text = languageLabel()
         bottomLangBtn.contentDescription = "Sprache wechseln"
-        bottomEnterBtn.text = enterIcon()
+        val action = ImeActionSpec.from(currentImeOptions)
+        bottomEnterBtn.text = action.icon
+        bottomEnterBtn.contentDescription = action.contentDescription
     }
 
     // ── Button configuration (no allocation) ───────────────────────
@@ -506,16 +514,6 @@ class XiKeyInputMethodService : InputMethodService() {
         else -> "⇩"
     }
 
-    /** P1-4: Context-sensitive Enter key icon based on IME options. */
-    private fun enterIcon(): String = when (currentImeOptions and EditorInfo.IME_MASK_ACTION) {
-        EditorInfo.IME_ACTION_GO -> "→"
-        EditorInfo.IME_ACTION_SEARCH -> "🔍"
-        EditorInfo.IME_ACTION_SEND -> "➤"
-        EditorInfo.IME_ACTION_NEXT -> "⇥"
-        EditorInfo.IME_ACTION_PREVIOUS -> "⇤"
-        EditorInfo.IME_ACTION_DONE -> "✓"
-        else -> "↵"
-    }
 
     /** P1-5: Long-press character variants (like Gboard accent popups). */
     private val longPressMap = mapOf(
