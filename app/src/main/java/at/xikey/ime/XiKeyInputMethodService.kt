@@ -563,10 +563,10 @@ class XiKeyInputMethodService : InputMethodService() {
             row,
             LinearLayout.LayoutParams.WRAP_CONTENT,
             dp(LONG_PRESS_POPUP_HEIGHT_DP),
-            true,
+            false,
         ).apply {
             elevation = dp(8).toFloat()
-            isOutsideTouchable = true
+            isOutsideTouchable = false
             setOnDismissListener { if (variantPopup === this) variantPopup = null }
         }
         labels.forEach { label ->
