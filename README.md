@@ -103,9 +103,9 @@ Die Release-APK ist absichtlich **nicht signiert**, sofern keine Signatur-Secret
 ## Architektur
 
 - **Kotlin + Android Framework:** Eine schlanke `InputMethodService`, ohne Backend oder Netzwerkanbindung.
-- **VoraLex als APK-Asset:** `app/src/main/assets/voralex_words.json` enthält die 3.850 produktiven, kuratierten Formen aus dem lokalen VoraLex-Datensatz.
+- **VoraLex als APK-Asset:** `app/src/main/assets/voralex_words.json` enthält 3.867 exportierbare, kuratierte Formen aus den aktuell produktiven `model_approved`-VoraLex-Quellen.
 - **Suggestion Engine:** Reine Kotlin-Präfixsuche; durch JVM-Tests abgesichert.
-- **Lokal gespeicherte Einstellung:** Nur das gewählte Tastaturlayout (`VBG`/`EN`) wird via `SharedPreferences` gespeichert.
+- **Lokale Persistenz:** Sprachpräferenz (`VBG`/`EN`) sowie ausschließlich lokal gelernte Token und Häufigkeiten werden via `SharedPreferences` gespeichert.
 
 ## Datenschutz und Sicherheit
 
