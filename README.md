@@ -111,8 +111,8 @@ Die Release-APK ist absichtlich **nicht signiert**, sofern keine Signatur-Secret
 
 - Manifest ohne `INTERNET`-Permission.
 - Kein Telemetrie-, Cloud-, Analytics- oder Werbe-SDK.
-- Vorschläge werden für Passwortvarianten deaktiviert.
-- `allowBackup="false"`; weder Texte noch persönliches Wörterbuch werden exportiert.
+- Vorschläge werden für Passwort- und Zahlen-PIN-Felder deaktiviert.
+- Backup-Regeln schließen `xikey_preferences` von Cloud Backup und Geräteübertragung aus.
 
 ## Lizenz
 
