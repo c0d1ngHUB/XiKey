@@ -9,10 +9,12 @@ XiKey ist eine eigenständige Android-IME (Input Method Editor) für Vorarlberge
 - Deutsches **QWERTZ**-Layout für Vorarlberger Deutsch: `ä`, `ö`, `ü`, `ß` und `ẞ` per Shift.
 - Englisches **QWERTY**-Layout; Wechsel direkt über `VBG` / `EN`.
 - Zahlen-, Satzzeichen- und zweite Sonderzeichenebene.
-- Lokale VoraLex-Autovervollständigung mit **3.850** kuratierten Dialektformen.
+- Lokale VoraLex-Autovervollständigung mit **3.867** exportierbaren Dialektformen aus den aktuell produktiven, `model_approved`-Quellen.
   - Beispiele: `Guata Morga`, `Guata Obed`, `g'hörig`, `Schtoa`.
   - Präfixsuche ist Groß-/Kleinschreibungs-unabhängig und erhält Dialekt-Apostrophe.
   - Ein Vorschlag ersetzt das aktuelle Wortfragment und fügt ein Leerzeichen an.
+  - Das Asset wird deterministisch aus dem VoraLex-DB-Pfad exportiert: `exportable_forms()` liefert nur `model_approved`-Formen, dedupliziert nach Oberfläche und sortiert nach `normalized`/`surface`.
+  - Der Sync ist als `scripts/sync_voralex_asset.py` mit `--check` abbildbar; im CI/Lokal kann damit Drift gegen den VoraLex-Export erkannt werden.
 - Keine Vorschläge in Passwortfeldern; keine Texte oder Nutzungsdaten verlassen das Gerät.
 - Startbildschirm mit direktem Link zu Androids Tastatur-Einstellungen und eingebautem Testfeld.
 
