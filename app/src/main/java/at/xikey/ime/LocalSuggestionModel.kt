@@ -33,6 +33,21 @@ object WordBoundaries {
     }
 }
 
+private fun String.whitespaceTokens(): Sequence<String> = sequence {
+    var start = -1
+    for (index in indices) {
+        if (this@whitespaceTokens[index].isWhitespace()) {
+            if (start >= 0) {
+                yield(substring(start, index))
+                start = -1
+            }
+        } else if (start < 0) {
+            start = index
+        }
+    }
+    if (start >= 0) yield(substring(start))
+}
+
 data class LearnedWord(val language: PredictionLanguage, val key: String, val display: String, val count: Int, val lastSeen: Long)
 data class LearnedTransition(val language: PredictionLanguage, val from: String, val to: String, val count: Int, val lastSeen: Long)
 data class LearningSnapshot(
@@ -111,9 +126,9 @@ class LocalPredictionModel(
 
     fun learnPhrase(language: PredictionLanguage, previousWord: String?, phrase: String) {
         var previous = previousWord
-        phrase.split(Regex("\\s+")).filter(String::isNotBlank).forEach {
-            learn(language, previous, it)
-            previous = it
+        for (token in phrase.whitespaceTokens()) {
+            learn(language, previous, token)
+            previous = token
         }
     }
 
@@ -204,8 +219,12 @@ class LocalPredictionModel(
         private fun build(values: Collection<String>): Map<String, List<String>> {
             val grouped = linkedMapOf<String, MutableSet<String>>()
             values.forEach { value ->
-                val tokens = value.split(Regex("\\s+")).filter(String::isNotBlank)
-                for (i in 0 until tokens.lastIndex) grouped.getOrPut(normalized(tokens[i])) { linkedSetOf() }.add(tokens[i + 1].trim())
+                var previous: String? = null
+                for (token in value.whitespaceTokens()) {
+                    val prior = previous
+                    if (prior != null) grouped.getOrPut(normalized(prior)) { linkedSetOf() }.add(token)
+                    previous = token
+                }
             }
             return grouped.mapValues { it.value.toList() }
         }
