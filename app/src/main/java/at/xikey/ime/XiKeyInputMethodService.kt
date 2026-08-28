@@ -6,7 +6,6 @@ import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
-import android.text.InputType
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
@@ -36,7 +35,8 @@ internal object KeyboardSurfaceMetrics {
  */
 class XiKeyInputMethodService : InputMethodService() {
     private lateinit var languages: KeyboardLanguageController
-    private lateinit var suggestions: SuggestionWordLists
+    private lateinit var suggestions: LocalPredictionModel
+    private val learningGuard = CompletedTokenLearningGuard()
     private val pages = KeyboardPageController()
     private val shift = KeyboardShiftController()
     private val backspaceRepeater = BackspaceRepeatController()
@@ -104,10 +104,11 @@ class XiKeyInputMethodService : InputMethodService() {
         colKeyText = getColor(R.color.key_text)
         val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
         languages = KeyboardLanguageController(KeyboardLanguagePreference.restore(storedTag))
-        suggestions = SuggestionWordLists(
+        suggestions = LocalPredictionModel(
             dialectWords = loadBundledWords("voralex_words.json"),
             germanWords = loadBundledWords("german_words.json"),
             englishWords = loadBundledWords("english_words.json"),
+            store = SharedPreferencesLearningStore(getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)),
         )
     }
 
@@ -126,9 +127,10 @@ class XiKeyInputMethodService : InputMethodService() {
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
-        suggestionsAllowed = !isSensitiveInput(attribute)
+        suggestionsAllowed = allowsPrediction(attribute)
         currentSuggestions = emptyList()
         lastComposingWord = ""
+        learningGuard.reset()
         shift.reset()
         currentImeOptions = attribute?.imeOptions ?: 0
         currentInputConnection
@@ -237,7 +239,7 @@ class XiKeyInputMethodService : InputMethodService() {
             performKeyFeedback(bottomLangBtn)
             val language = languages.switchToNext()
             getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit().putString(PREFERENCE_LANGUAGE_TAG, KeyboardLanguagePreference.store(language)).apply()
-            suggestionsAllowed = !isSensitiveInput(currentInputEditorInfo)
+            suggestionsAllowed = allowsPrediction(currentInputEditorInfo)
             clearSuggestions()
             updateKeyboard()
         }
@@ -478,14 +480,36 @@ class XiKeyInputMethodService : InputMethodService() {
 
     // ── Suggestions ──────────────────────────────────────────────
     private fun acceptSuggestion(suggestion: String) {
-        val prefix = currentComposingWord()
-        if (prefix.isNotEmpty()) currentInputConnection?.deleteSurroundingText(prefix.length, 0)
-        currentInputConnection?.commitText("$suggestion ", 1)
+        val context = CursorContext.fromText(textBeforeCursor())
+        val plan = SuggestionInsertionPlanner.plan(context, suggestion)
+        if (plan.deleteCount > 0) currentInputConnection?.deleteSurroundingText(plan.deleteCount, 0)
+        currentInputConnection?.commitText(plan.textToCommit, 1)
+        if (suggestionsAllowed && learningGuard.shouldLearn(
+                languages.current,
+                context.previousWord,
+                suggestion,
+                context.textBeforeCursor,
+            )
+        ) {
+            suggestions.learnPhrase(languages.current, context.previousWord, suggestion)
+        }
         clearSuggestions()
         updateKeyboard()
     }
 
     private fun commitAndRefresh(text: String) {
+        if (text == " " && suggestionsAllowed) {
+            val context = CursorContext.fromText(textBeforeCursor())
+            if (context.composingWord.isNotBlank() && learningGuard.shouldLearn(
+                    languages.current,
+                    context.previousWord,
+                    context.composingWord,
+                    context.textBeforeCursor,
+                )
+            ) {
+                suggestions.learn(languages.current, context.previousWord, context.composingWord)
+            }
+        }
         currentInputConnection?.commitText(text, 1)
         autoEnableShiftAfterSentenceEnd()
         refreshSuggestions()
@@ -497,11 +521,11 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     private fun refreshSuggestions() {
-        val word = currentComposingWord()
-        if (word == lastComposingWord) return  // no change in composing word → skip
-        lastComposingWord = word
+        val context = CursorContext.fromText(textBeforeCursor())
+        if (context.composingWord == lastComposingWord && currentSuggestions.isNotEmpty()) return
+        lastComposingWord = context.composingWord
         currentSuggestions = if (suggestionsAllowed && pages.current == KeyboardPage.ALPHABETIC) {
-            suggestions.suggestionsFor(languages.current, word)
+            suggestions.suggestionsFor(languages.current, context)
         } else {
             emptyList()
         }
@@ -510,14 +534,10 @@ class XiKeyInputMethodService : InputMethodService() {
 
     private fun textBeforeCursor(): String = currentInputConnection?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)?.toString().orEmpty()
 
-    private fun currentComposingWord(): String = ComposingWord.beforeCursor(textBeforeCursor())
+    private fun clearSuggestions() { currentSuggestions = emptyList(); lastComposingWord = CursorContext.fromText(textBeforeCursor()).composingWord }
 
-    private fun clearSuggestions() { currentSuggestions = emptyList(); lastComposingWord = currentComposingWord() }
-
-    private fun isSensitiveInput(attribute: EditorInfo?): Boolean {
-        val variation = (attribute?.inputType ?: 0) and InputType.TYPE_MASK_VARIATION
-        return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD || variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
-    }
+    private fun allowsPrediction(attribute: EditorInfo?): Boolean =
+        InputTypeClassifier.allowsPrediction(attribute?.inputType ?: 0)
 
     // ── Helpers ───────────────────────────────────────────────────
     private fun languageLabel(): String = if (languages.current == PredictionLanguage.VORARLBERG_GERMAN) "VBG" else "EN"
