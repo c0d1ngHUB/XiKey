@@ -142,4 +142,18 @@ class LocalPredictionModelTest {
         assertEquals(listOf("valid"), model.suggestionsFor(PredictionLanguage.ENGLISH, CursorContext.fromText("val")))
         assertEquals(listOf("next"), model.suggestionsFor(PredictionLanguage.ENGLISH, CursorContext.fromText("valid ")))
     }
+
+    @Test fun `single-word source entries do not affect phrase indexing`() {
+        val manySingleWords = (1..20_000).map { "word$it" }
+        val model = LocalPredictionModel(
+            dialectWords = manySingleWords + listOf("alpha beta"),
+            germanWords = manySingleWords,
+            englishWords = manySingleWords + listOf("gamma delta"),
+        )
+
+        assertEquals(listOf("beta"), model.suggestionsFor(PredictionLanguage.VORARLBERG_GERMAN, CursorContext.fromText("alpha ")))
+        assertTrue(model.suggestionsFor(PredictionLanguage.VORARLBERG_GERMAN, CursorContext.fromText("word1 ")).isEmpty())
+        assertEquals(listOf("delta"), model.suggestionsFor(PredictionLanguage.ENGLISH, CursorContext.fromText("gamma ")))
+        assertTrue(model.suggestionsFor(PredictionLanguage.ENGLISH, CursorContext.fromText("word1 ")).isEmpty())
+    }
 }
