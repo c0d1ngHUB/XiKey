@@ -44,6 +44,7 @@ Das Modell ist Android- und netzwerkfrei. Die statischen Quellen bleiben getrenn
 - Unterstützte Sprachen sind ausschließlich `PredictionLanguage.VORARLBERG_GERMAN` (`de-AT-vorarlberg`) und `ENGLISH` (`en`).
 - `KeyboardLanguageController` verwaltet den aktuellen Wert; `KeyboardLanguagePreference` serialisiert ihn für die bestehende Sprachpräferenz.
 - Der Service speichert das Tag in derselben `SharedPreferences`-Datei und erstellt das Modell mit `voralex_words.json`, `german_words.json` und `english_words.json`.
+- `voralex_words.json` wird aus dem aktuellen VoraLex-DB-Pfad exportiert; der Export enthält nur `model_approved`-Formen, dedupliziert Oberflächen deterministisch und enthält aktuell 3.867 Einträge.
 - `LocalPredictionModel.normalized` und `DialectSuggestionEngine.normalized` wenden `Normalizer.Form.NFC`, `trim()` und `lowercase(Locale.ROOT)` an. Anzeigeformen bleiben unverändert; bei erneut gelerntem Schlüssel wird die zuletzt gelernte Display-Schreibweise verwendet.
 - NFC/lowercase gilt für Lookup, Deduplizierung, Lernschlüssel und Übergangsschlüssel, nicht für die sichtbare Ausgabe.
 - Das produktive VoraLex-Asset enthält nachweislich `Guata Morga`, `Guata Obed` und weitere Dialektformen. Die eingebauten Phrase-Konstanten werden für Wort-für-Wort-Folgevorhersage genutzt; sie erweitern derzeit nicht den Präfixindex von `baseSuggestions`.
