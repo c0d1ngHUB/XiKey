@@ -67,6 +67,17 @@ private fun String.whitespaceTokens(): Sequence<String> = sequence {
     if (start >= 0) yield(substring(start))
 }
 
+object CompletedTokenLearningPolicy {
+    private val punctuationCompletions = setOf('.', ',', '!', '?', ';', ':')
+
+    fun completedTokenBeforeCommit(committedText: String, composingWord: String): String? {
+        val completesWord = committedText == " " || (committedText.length == 1 && committedText[0] in punctuationCompletions)
+        if (!completesWord) return null
+        if (composingWord.isBlank() || composingWord.any { it.isWhitespace() }) return null
+        return composingWord
+    }
+}
+
 data class LearnedWord(val language: PredictionLanguage, val key: String, val display: String, val count: Int, val lastSeen: Long)
 data class LearnedTransition(val language: PredictionLanguage, val from: String, val to: String, val count: Int, val lastSeen: Long)
 data class LearningSnapshot(
