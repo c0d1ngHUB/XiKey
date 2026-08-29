@@ -18,14 +18,25 @@ import java.util.regex.Pattern
 
 @RunWith(AndroidJUnit4::class)
 class XiKeyEditorActionUiTest {
+    private companion object {
+        const val XIKEY_IME = "at.xikey.ime/.XiKeyInputMethodService"
+        const val FALLBACK_IME = "com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME"
+    }
+
+    private fun selectXiKey(device: UiDevice) {
+        // `am instrument` force-stops the target package. When XiKey was already
+        // selected, setting the same IME again may not rebind its killed service.
+        device.executeShellCommand("ime set $FALLBACK_IME")
+        device.executeShellCommand("ime enable $XIKEY_IME")
+        device.executeShellCommand("ime set $XIKEY_IME")
+    }
+
     @Test
     fun runnerSelectsXiKeyAndFocusesDoneField() {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        val xiKeyIme = "at.xikey.ime/.XiKeyInputMethodService"
-        device.executeShellCommand("ime enable $xiKeyIme")
-        device.executeShellCommand("ime set $xiKeyIme")
+        selectXiKey(device)
         assertEquals(
-            xiKeyIme,
+            XIKEY_IME,
             device.executeShellCommand("settings get secure default_input_method").trim(),
         )
         ActivityScenario.launch(ImeTestHarnessActivity::class.java).use { scenario ->
@@ -39,9 +50,7 @@ class XiKeyEditorActionUiTest {
     @Test
     fun reusedBackspaceButtonCommitsSharpSAfterLanguageSwitch() {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        val xiKeyIme = "at.xikey.ime/.XiKeyInputMethodService"
-        device.executeShellCommand("ime enable $xiKeyIme")
-        device.executeShellCommand("ime set $xiKeyIme")
+        selectXiKey(device)
 
         ActivityScenario.launch(ImeTestHarnessActivity::class.java).use { scenario ->
             onView(withId(R.id.field_done)).perform(click(), replaceText("X"))
