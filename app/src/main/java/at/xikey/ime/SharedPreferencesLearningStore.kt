@@ -11,6 +11,10 @@ class SharedPreferencesLearningStore(private val preferences: SharedPreferences)
         const val SCHEMA_VERSION = 1
     }
 
+    fun clear() {
+        preferences.edit().remove(KEY).apply()
+    }
+
     override fun save(snapshot: LearningSnapshot) {
         val words = JSONArray().apply {
             snapshot.words.forEach { put(JSONObject().apply {

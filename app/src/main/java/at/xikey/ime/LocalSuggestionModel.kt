@@ -81,6 +81,8 @@ class LocalPredictionModel(
     germanWords: Collection<String>,
     englishWords: Collection<String>,
     private val store: LearningStore = NoOpLearningStore,
+    private val learningEnabled: () -> Boolean = { true },
+    private val resetGeneration: () -> Long = { 0L },
 ) {
     companion object {
         const val MAX_WORDS = 2_000
@@ -100,14 +102,17 @@ class LocalPredictionModel(
     private val words = linkedMapOf<Pair<PredictionLanguage, String>, LearnedWord>()
     private val transitions = linkedMapOf<Triple<PredictionLanguage, String, String>, LearnedTransition>()
     private var sequence = 0L
+    private var observedResetGeneration = resetGeneration()
 
     init {
-        runCatching { restore(store.load()) }.onFailure { clearLearning() }
+        runCatching { restore(store.load()) }.onFailure { clearLearningInMemory() }
     }
 
     /** Learns one completed token and its optional immediately preceding token. */
     @Synchronized
     fun learn(language: PredictionLanguage, previousWord: String?, completedWord: String) {
+        refreshIfReset()
+        if (!learningEnabled()) return
         val wordKey = normalized(completedWord)
         if (wordKey.isBlank() || wordKey.any { it.isWhitespace() }) return
         sequence++
@@ -125,6 +130,8 @@ class LocalPredictionModel(
     }
 
     fun learnPhrase(language: PredictionLanguage, previousWord: String?, phrase: String) {
+        refreshIfReset()
+        if (!learningEnabled()) return
         var previous = previousWord
         for (token in phrase.whitespaceTokens()) {
             learn(language, previous, token)
@@ -133,7 +140,14 @@ class LocalPredictionModel(
     }
 
     @Synchronized
+    fun clearLearning() {
+        clearLearningInMemory()
+        persistSafely()
+    }
+
+    @Synchronized
     fun suggestionsFor(language: PredictionLanguage, context: CursorContext, limit: Int = 3): List<String> {
+        refreshIfReset()
         require(limit > 0) { "limit must be positive" }
         if (context.composingWord.isNotEmpty()) {
             val prefix = normalized(context.composingWord)
@@ -207,7 +221,19 @@ class LocalPredictionModel(
         runCatching { store.save(LearningSnapshot(words.values.toList(), transitions.values.toList(), sequence)) }
     }
 
-    private fun clearLearning() { words.clear(); transitions.clear(); sequence = 0L }
+    private fun refreshIfReset() {
+        val current = resetGeneration()
+        if (current == observedResetGeneration) return
+        observedResetGeneration = current
+        clearLearningInMemory()
+    }
+
+    private fun clearLearningInMemory() {
+        words.clear()
+        transitions.clear()
+        sequence = 0L
+    }
+
 
     private class PhraseIndex(dialect: Collection<String>, german: Collection<String>, english: Collection<String>) {
         private val transitionsByLanguage = mapOf(
