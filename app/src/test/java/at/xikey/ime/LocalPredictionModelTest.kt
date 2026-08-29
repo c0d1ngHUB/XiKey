@@ -143,6 +143,24 @@ class LocalPredictionModelTest {
         assertEquals(listOf("next"), model.suggestionsFor(PredictionLanguage.ENGLISH, CursorContext.fromText("valid ")))
     }
 
+    @Test fun `suggestion refresh context changes across punctuation transitions`() {
+        val afterSpace = SuggestionRefreshContext.from(CursorContext.fromText("good "))
+        val afterPeriod = SuggestionRefreshContext.from(CursorContext.fromText("good ."))
+
+        assertEquals("good", afterSpace.previousWord)
+        assertEquals("good", afterPeriod.previousWord)
+        assertTrue(afterSpace.atWordBoundary)
+        assertTrue(!afterPeriod.atWordBoundary)
+        assertTrue(afterSpace != afterPeriod)
+    }
+
+    @Test fun `cursor context keeps completed word after punctuation`() {
+        val context = CursorContext.fromText("good .")
+        assertEquals("", context.composingWord)
+        assertEquals("good", context.previousWord)
+        assertTrue(!context.atWordBoundary)
+    }
+
     @Test fun `single-word source entries do not affect phrase indexing`() {
         val manySingleWords = (1..20_000).map { "word$it" }
         val model = LocalPredictionModel(

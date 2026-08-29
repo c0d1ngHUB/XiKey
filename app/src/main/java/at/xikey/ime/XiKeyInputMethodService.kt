@@ -49,7 +49,7 @@ class XiKeyInputMethodService : InputMethodService() {
     private var isBackspaceHeld = false
     private var audioManager: AudioManager? = null
     private var currentImeOptions: Int = 0
-    private var lastComposingWord: String = ""
+    private var lastSuggestionContext: SuggestionRefreshContext? = null
     private var variantPopup: PopupWindow? = null
 
     // ── Colors from resources ─────────────────────────────────────
@@ -136,7 +136,7 @@ class XiKeyInputMethodService : InputMethodService() {
         super.onStartInput(attribute, restarting)
         suggestionsAllowed = allowsPrediction(attribute)
         currentSuggestions = emptyList()
-        lastComposingWord = ""
+        lastSuggestionContext = null
         learningGuard.reset()
         shift.reset()
         currentImeOptions = attribute?.imeOptions ?: 0
@@ -529,8 +529,9 @@ class XiKeyInputMethodService : InputMethodService() {
 
     private fun refreshSuggestions() {
         val context = CursorContext.fromText(textBeforeCursor())
-        if (context.composingWord == lastComposingWord && currentSuggestions.isNotEmpty()) return
-        lastComposingWord = context.composingWord
+        val refreshContext = SuggestionRefreshContext.from(context)
+        if (refreshContext == lastSuggestionContext && currentSuggestions.isNotEmpty()) return
+        lastSuggestionContext = refreshContext
         currentSuggestions = if (suggestionsAllowed && pages.current == KeyboardPage.ALPHABETIC) {
             suggestions.suggestionsFor(languages.current, context)
         } else {
@@ -541,7 +542,7 @@ class XiKeyInputMethodService : InputMethodService() {
 
     private fun textBeforeCursor(): String = currentInputConnection?.getTextBeforeCursor(MAX_CURSOR_LOOKBACK, 0)?.toString().orEmpty()
 
-    private fun clearSuggestions() { currentSuggestions = emptyList(); lastComposingWord = CursorContext.fromText(textBeforeCursor()).composingWord }
+    private fun clearSuggestions() { currentSuggestions = emptyList(); lastSuggestionContext = SuggestionRefreshContext.from(CursorContext.fromText(textBeforeCursor())) }
 
     private fun allowsPrediction(attribute: EditorInfo?): Boolean =
         InputTypeClassifier.allowsPrediction(attribute?.inputType ?: 0)

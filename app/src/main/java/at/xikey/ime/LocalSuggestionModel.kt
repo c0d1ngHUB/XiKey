@@ -21,6 +21,25 @@ data class CursorContext(
     }
 }
 
+/**
+ * Minimal cursor state that affects suggestion refresh decisions.
+ * It intentionally ignores unrelated text changes while still invalidating on
+ * boundary and previous-word transitions.
+ */
+data class SuggestionRefreshContext(
+    val composingWord: String,
+    val previousWord: String,
+    val atWordBoundary: Boolean,
+) {
+    companion object {
+        fun from(context: CursorContext): SuggestionRefreshContext = SuggestionRefreshContext(
+            composingWord = context.composingWord,
+            previousWord = context.previousWord,
+            atWordBoundary = context.atWordBoundary,
+        )
+    }
+}
+
 object WordBoundaries {
     private val boundaryChars = setOf(' ', '\n', '\t', '\u00A0', '.', ',', '!', '?', ';', ':', '(', ')', '[', ']', '{', '}', '"')
 
