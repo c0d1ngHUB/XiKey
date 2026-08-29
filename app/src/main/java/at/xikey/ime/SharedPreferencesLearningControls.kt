@@ -2,24 +2,27 @@ package at.xikey.ime
 
 import android.content.SharedPreferences
 
+internal object LearningPreferenceKeys {
+    const val ENABLED = "local_learning_enabled"
+    const val RESET_GENERATION = "local_learning_reset_generation"
+}
+
 internal class SharedPreferencesLearningControls(
     private val preferences: SharedPreferences,
     private val store: SharedPreferencesLearningStore,
 ) {
-    private companion object {
-        const val KEY_ENABLED = "local_learning_enabled"
-    }
+    fun isEnabled(): Boolean = preferences.getBoolean(LearningPreferenceKeys.ENABLED, true)
 
-    fun isEnabled(): Boolean = preferences.getBoolean(KEY_ENABLED, true)
+    fun resetGeneration(): Long = preferences.getLong(LearningPreferenceKeys.RESET_GENERATION, 0L)
 
     fun setEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean(KEY_ENABLED, enabled).apply()
-        if (!enabled) {
-            store.clear()
-        }
+        preferences.edit().putBoolean(LearningPreferenceKeys.ENABLED, enabled).apply()
     }
 
     fun clearAll() {
+        preferences.edit()
+            .putLong(LearningPreferenceKeys.RESET_GENERATION, resetGeneration() + 1L)
+            .apply()
         store.clear()
     }
 }

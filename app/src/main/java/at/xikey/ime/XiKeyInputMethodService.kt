@@ -115,19 +115,11 @@ class XiKeyInputMethodService : InputMethodService() {
             englishWords = loadBundledWords("english_words.json"),
             store = learningStore,
             learningEnabled = { learningControls.isEnabled() },
+            resetGeneration = { learningControls.resetGeneration() },
         )
-        preferences.registerOnSharedPreferenceChangeListener(sharedPreferenceListener)
-    }
-
-    private val sharedPreferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        when (key) {
-            PREFERENCE_LOCAL_LEARNING_ENABLED -> if (!learningControls.isEnabled()) suggestions.clearLearning()
-            PREFERENCE_LEARNING_STORE -> suggestions.clearLearning()
-        }
     }
 
     override fun onDestroy() {
-        preferences.unregisterOnSharedPreferenceChangeListener(sharedPreferenceListener)
         variantPopup?.dismiss()
         variantPopup = null
         stopBackspaceRepeat()
