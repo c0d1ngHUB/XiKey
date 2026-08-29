@@ -505,16 +505,17 @@ class XiKeyInputMethodService : InputMethodService() {
     }
 
     private fun commitAndRefresh(text: String) {
-        if (text == " " && suggestionsAllowed) {
+        if (suggestionsAllowed) {
             val context = CursorContext.fromText(textBeforeCursor())
-            if (context.composingWord.isNotBlank() && learningGuard.shouldLearn(
+            val completedWord = CompletedTokenLearningPolicy.completedTokenBeforeCommit(text, context.composingWord)
+            if (completedWord != null && learningGuard.shouldLearn(
                     languages.current,
                     context.previousWord,
-                    context.composingWord,
+                    completedWord,
                     context.textBeforeCursor,
                 )
             ) {
-                suggestions.learn(languages.current, context.previousWord, context.composingWord)
+                suggestions.learn(languages.current, context.previousWord, completedWord)
             }
         }
         currentInputConnection?.commitText(text, 1)
