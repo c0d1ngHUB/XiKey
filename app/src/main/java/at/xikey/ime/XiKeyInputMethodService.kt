@@ -36,6 +36,8 @@ internal object KeyboardSurfaceMetrics {
 class XiKeyInputMethodService : InputMethodService() {
     private lateinit var languages: KeyboardLanguageController
     private lateinit var suggestions: LocalPredictionModel
+    private lateinit var learningControls: SharedPreferencesLearningControls
+    private lateinit var preferences: android.content.SharedPreferences
     private val learningGuard = CompletedTokenLearningGuard()
     private val pages = KeyboardPageController()
     private val shift = KeyboardShiftController()
@@ -104,15 +106,28 @@ class XiKeyInputMethodService : InputMethodService() {
         colKeyText = getColor(R.color.key_text)
         val storedTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(PREFERENCE_LANGUAGE_TAG, null)
         languages = KeyboardLanguageController(KeyboardLanguagePreference.restore(storedTag))
+        preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+        val learningStore = SharedPreferencesLearningStore(preferences)
+        learningControls = SharedPreferencesLearningControls(preferences, learningStore)
         suggestions = LocalPredictionModel(
             dialectWords = loadBundledWords("voralex_words.json"),
             germanWords = loadBundledWords("german_words.json"),
             englishWords = loadBundledWords("english_words.json"),
-            store = SharedPreferencesLearningStore(getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)),
+            store = learningStore,
+            learningEnabled = { learningControls.isEnabled() },
         )
+        preferences.registerOnSharedPreferenceChangeListener(sharedPreferenceListener)
+    }
+
+    private val sharedPreferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        when (key) {
+            PREFERENCE_LOCAL_LEARNING_ENABLED -> if (!learningControls.isEnabled()) suggestions.clearLearning()
+            PREFERENCE_LEARNING_STORE -> suggestions.clearLearning()
+        }
     }
 
     override fun onDestroy() {
+        preferences.unregisterOnSharedPreferenceChangeListener(sharedPreferenceListener)
         variantPopup?.dismiss()
         variantPopup = null
         stopBackspaceRepeat()
@@ -686,6 +701,8 @@ class XiKeyInputMethodService : InputMethodService() {
     private companion object {
         const val PREFERENCES_NAME = "xikey_preferences"
         const val PREFERENCE_LANGUAGE_TAG = "language_tag"
+        const val PREFERENCE_LOCAL_LEARNING_ENABLED = "local_learning_enabled"
+        const val PREFERENCE_LEARNING_STORE = "local_prediction_learning_v1"
         const val KEY_GAP_DP = 4
         const val CORNER_RADIUS_DP = 9
         const val SUGGESTION_HEIGHT_DP = 38

@@ -81,6 +81,7 @@ class LocalPredictionModel(
     germanWords: Collection<String>,
     englishWords: Collection<String>,
     private val store: LearningStore = NoOpLearningStore,
+    private val learningEnabled: () -> Boolean = { true },
 ) {
     companion object {
         const val MAX_WORDS = 2_000
@@ -108,6 +109,7 @@ class LocalPredictionModel(
     /** Learns one completed token and its optional immediately preceding token. */
     @Synchronized
     fun learn(language: PredictionLanguage, previousWord: String?, completedWord: String) {
+        if (!learningEnabled()) return
         val wordKey = normalized(completedWord)
         if (wordKey.isBlank() || wordKey.any { it.isWhitespace() }) return
         sequence++
@@ -125,11 +127,20 @@ class LocalPredictionModel(
     }
 
     fun learnPhrase(language: PredictionLanguage, previousWord: String?, phrase: String) {
+        if (!learningEnabled()) return
         var previous = previousWord
         for (token in phrase.whitespaceTokens()) {
             learn(language, previous, token)
             previous = token
         }
+    }
+
+    @Synchronized
+    fun clearLearning() {
+        words.clear()
+        transitions.clear()
+        sequence = 0L
+        persistSafely()
     }
 
     @Synchronized
@@ -207,7 +218,6 @@ class LocalPredictionModel(
         runCatching { store.save(LearningSnapshot(words.values.toList(), transitions.values.toList(), sequence)) }
     }
 
-    private fun clearLearning() { words.clear(); transitions.clear(); sequence = 0L }
 
     private class PhraseIndex(dialect: Collection<String>, german: Collection<String>, english: Collection<String>) {
         private val transitionsByLanguage = mapOf(

@@ -1,6 +1,7 @@
 package at.xikey.ime
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -14,14 +15,17 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 
 /** Product entry point with live progress for Android's official IME setup flow. */
 class MainActivity : Activity() {
     private lateinit var content: LinearLayout
+    private val prefs by lazy { getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +89,36 @@ class MainActivity : Activity() {
                 minHeight = dp(56)
                 setPadding(dp(12), 0, dp(12), 0)
             }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }, spacedParams(top = 0, bottom = 12))
+
+        content.addView(card().apply {
+            addView(text("Lokales Lernen", 20f, Typeface.BOLD, R.color.launcher_text))
+            addView(text("Nur persönliche Wort- und Übergangsdaten lokal auf diesem Gerät.", 15f, Typeface.NORMAL, R.color.launcher_secondary_text).apply {
+                setPadding(0, dp(6), 0, dp(12))
+            })
+            addView(Switch(this@MainActivity).apply {
+                isChecked = prefs.getBoolean(PREFERENCE_LOCAL_LEARNING_ENABLED, true)
+                text = if (isChecked) "Lernen aktiv" else "Lernen pausiert"
+                contentDescription = "Lokales Lernen ein- oder ausschalten"
+                minHeight = dp(48)
+                setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
+                    prefs.edit().putBoolean(PREFERENCE_LOCAL_LEARNING_ENABLED, checked).apply()
+                    text = if (checked) "Lernen aktiv" else "Lernen pausiert"
+                }
+            }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(actionButton("Alle gelernten Wörter löschen") {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Lernen löschen?")
+                    .setMessage("Dabei werden alle gelernten Wörter und Übergänge dauerhaft vom Gerät entfernt.")
+                    .setNegativeButton("Abbrechen", null)
+                    .setPositiveButton("Löschen") { _, _ ->
+                        prefs.edit().remove(PREFERENCE_LEARNING_STORE).apply()
+                    }
+                    .show()
+            }.apply {
+                contentDescription = "Alle gelernten Wörter und Übergänge löschen"
+                backgroundTintList = ColorStateList.valueOf(getColor(R.color.launcher_secondary_text))
+            })
         }, spacedParams(top = 0, bottom = 12))
 
         content.addView(text("Keine Eingaben verlassen dieses Gerät.", 13f, Typeface.NORMAL, R.color.launcher_secondary_text).apply {
@@ -152,4 +186,11 @@ class MainActivity : Activity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val PREFERENCES_NAME = "xikey_preferences"
+        const val PREFERENCE_LANGUAGE_TAG = "language_tag"
+        const val PREFERENCE_LOCAL_LEARNING_ENABLED = "local_learning_enabled"
+        const val PREFERENCE_LEARNING_STORE = "local_prediction_learning_v1"
+    }
 }
