@@ -26,6 +26,9 @@ import android.widget.TextView
 class MainActivity : Activity() {
     private lateinit var content: LinearLayout
     private val prefs by lazy { getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE) }
+    private val learningControls by lazy {
+        SharedPreferencesLearningControls(prefs, SharedPreferencesLearningStore(prefs))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,12 +100,12 @@ class MainActivity : Activity() {
                 setPadding(0, dp(6), 0, dp(12))
             })
             addView(Switch(this@MainActivity).apply {
-                isChecked = prefs.getBoolean(PREFERENCE_LOCAL_LEARNING_ENABLED, true)
+                isChecked = learningControls.isEnabled()
                 text = if (isChecked) "Lernen aktiv" else "Lernen pausiert"
                 contentDescription = "Lokales Lernen ein- oder ausschalten"
                 minHeight = dp(48)
                 setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
-                    prefs.edit().putBoolean(PREFERENCE_LOCAL_LEARNING_ENABLED, checked).apply()
+                    learningControls.setEnabled(checked)
                     text = if (checked) "Lernen aktiv" else "Lernen pausiert"
                 }
             }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -112,7 +115,7 @@ class MainActivity : Activity() {
                     .setMessage("Dabei werden alle gelernten Wörter und Übergänge dauerhaft vom Gerät entfernt.")
                     .setNegativeButton("Abbrechen", null)
                     .setPositiveButton("Löschen") { _, _ ->
-                        prefs.edit().remove(PREFERENCE_LEARNING_STORE).apply()
+                        learningControls.clearAll()
                     }
                     .show()
             }.apply {
@@ -189,8 +192,5 @@ class MainActivity : Activity() {
 
     private companion object {
         const val PREFERENCES_NAME = "xikey_preferences"
-        const val PREFERENCE_LANGUAGE_TAG = "language_tag"
-        const val PREFERENCE_LOCAL_LEARNING_ENABLED = "local_learning_enabled"
-        const val PREFERENCE_LEARNING_STORE = "local_prediction_learning_v1"
     }
 }
