@@ -22,7 +22,7 @@ XiKey ist eine eigenständige Android-IME (Input Method Editor) für Vorarlberge
 
 ### Fertige Debug-APK
 
-Die geprüfte APK liegt hier:
+Nach einem erfolgreichen Debug-Build liegt die lokal erzeugte APK hier (Build-Artefakte sind nicht im Checkout enthalten):
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
@@ -46,16 +46,38 @@ Android zeigt für jede Drittanbieter-Tastatur einen Systemhinweis, weil IMEs Te
 
 ## Entwicklung
 
-Voraussetzungen: Android SDK Platform 35 und JDK 17+.
+Voraussetzungen: Android SDK Platform 35 und JDK 17+; die [CI](.github/workflows/android.yml) verwendet JDK 21. Der eingecheckte Gradle-Wrapper lädt Gradle 8.11.1; beim ersten Build werden auch Android-/Maven-Abhängigkeiten geladen. Die App unterstützt Android 8.0/API 26 und höher.
 
 ```bash
 printf 'sdk.dir=/PFAD/ZUM/android-sdk\n' > local.properties
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 ```
 
+### VoraLex-Asset reproduzieren
+
+Die Wortliste ist bereits im Checkout enthalten; für den normalen Android-Build wird kein VoraLex-Checkout benötigt. Für die Driftprüfung Python 3.11+ und das VoraLex-Repository als benachbarten Checkout oder expliziten Pfad bereitstellen:
+
+```bash
+python3 scripts/sync_voralex_asset.py --voralex-root ../VoraLex --check
+# Nach einer bewusst geprüften Wörterbuchänderung neu erzeugen:
+python3 scripts/sync_voralex_asset.py --voralex-root ../VoraLex
+```
+
+Alternativ setzt `VORALEX_ROOT` den Pfad. Der Sync liest vier Datensätze (`vorarlberg_v1.json`, `vorarlberg_core_v1.json`, `vorarlberg_regional_expansion_v1.json`, `vorarlberg_voice_v1_curated.json`) in eine temporäre SQLite-Datenbank ein. `--check` vergleicht die exakten JSON-Bytes und schreibt das Asset nicht. Dieser Check ist derzeit kein Schritt der Android-CI; bei Wörterbuchänderungen separat ausführen.
+
 ### Automatisierte IME-Tests auf `xikey_api35`
 
 Der Debug-Build enthält eine eigene `ImeTestHarnessActivity` mit Feldern für `DONE`, `SEARCH`, `SEND`, `GO`, `NEXT`, `PREVIOUS`, Mehrzeilentext, Passwort, Auto-Shift/Caps-Lock, VoraLex sowie Long-Press/Backspace. Die Activity wird ausschließlich im Debug-Source-Set gebaut und ist nicht Bestandteil der Release-App.
+
+Die Skripte verwenden `ANDROID_SDK_ROOT` (Fallback: `/home/m3kky/android-sdk`) für `adb` und `emulator`. Dafür muss ein AVD namens `xikey_api35` mit API-35-Systemimage bereits existieren; die Skripte erstellen es nicht. Beispiel nach Installation der Android-Command-Line-Tools:
+
+```bash
+export ANDROID_SDK_ROOT=/PFAD/ZUM/android-sdk
+sdkmanager "platforms;android-35" "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
+avdmanager create avd --name xikey_api35 --package "system-images;android-35;google_apis;x86_64" --device pixel_2
+```
+
+`--reset` löscht die Daten dieses AVD. Die GitHub-Instrumentierung verwendet separat einen API-30-Emulator; der lokale API-35-Runner ist ein eigener Abnahmepfad.
 
 ```bash
 # Vollständiger Lauf: Build, Installation, XiKey-Auswahl, Tests und Beweisartefakte
@@ -93,6 +115,8 @@ Ausgaben:
 app/build/outputs/apk/debug/app-debug.apk
 app/build/outputs/apk/release/app-release-unsigned.apk
 ```
+
+Bei lokaler Signierung ist `XIKEY_STORE_FILE` ein Dateipfad zum Keystore (Gradle löst relative Pfade im `app/`-Projekt auf), kein base64-Inhalt. Die übrigen drei Variablen liefern Passwort und Alias. Signaturdateien und Zugangsdaten bleiben außerhalb Git.
 
 Die Release-APK ist absichtlich **nicht signiert**, sofern keine Signatur-Secrets konfiguriert sind. In GitHub Actions wird der Release-Build automatisch mit hinterlegten Secrets signiert, sobald `XIKEY_STORE_FILE` (base64-kodierter Keystore), `XIKEY_STORE_PASSWORD`, `XIKEY_KEY_ALIAS` und `XIKEY_KEY_PASSWORD` als Repository-Secrets gesetzt sind. Ohne diese Secrets wird eine unsignierte Release-APK gebaut.
 
